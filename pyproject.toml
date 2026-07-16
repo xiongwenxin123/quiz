@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "polyglot-quiz"
+version = "0.1.0"
+description = "Grounded quiz generation for English, Japanese, and Spanish articles"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.27,<1",
+  "pydantic>=2.9,<3",
+]
+
+[project.optional-dependencies]
+extract = ["trafilatura>=2,<3"]
+api = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1"]
+dev = ["pytest>=8,<9"]
+all = [
+  "trafilatura>=2,<3",
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.30,<1",
+  "pytest>=8,<9",
+]
+
+[project.scripts]
+polyglot-quiz = "polyglot_quiz.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+polyglot_quiz = ["web/*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

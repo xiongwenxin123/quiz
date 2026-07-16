@@ -1,0 +1,14 @@
+{
+  "source_text": "近年、食品ロスを減らすために、売れ残った料理を安く提供する店が増えています。利用者はアプリで商品を予約し、閉店前に店で受け取ります。店にとっては廃棄費用を減らせるという利点があります。一方で、毎日同じ商品が残るとは限らないため、利用者は内容を自由に選べないこともあります。この仕組みを続けるには、便利さだけでなく、店と利用者の理解も必要です。",
+  "target_language": "ja",
+  "level": "N3",
+  "explanation_language": "zh-CN",
+  "include_furigana": true,
+  "question_counts": [
+    {"type": "detail", "count": 2},
+    {"type": "inference", "count": 1},
+    {"type": "vocabulary_context", "count": 1},
+    {"type": "grammar", "count": 1}
+  ]
+}
+

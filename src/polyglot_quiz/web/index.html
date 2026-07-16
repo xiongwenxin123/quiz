@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Polyglot Quiz</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <a class="brand" href="/" aria-label="Polyglot Quiz 首页">
+        <span class="brand-mark" aria-hidden="true">PQ</span>
+        <span>
+          <strong>Polyglot Quiz</strong>
+          <small>多语言阅读训练</small>
+        </span>
+      </a>
+      <div class="header-actions">
+        <span class="service-status" id="service-status"><span></span>服务检查中</span>
+        <button class="icon-button settings-button" id="open-model-settings" type="button" aria-label="模型设置" title="模型设置">⚙</button>
+        <button class="button secondary compact" id="load-sample" type="button">载入示例</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="builder-panel" aria-label="出题设置">
+        <form id="quiz-form">
+          <section class="form-section">
+            <div class="section-heading">
+              <div>
+                <span class="section-number">01</span>
+                <h2>文章内容</h2>
+              </div>
+              <span class="counter" id="source-counter">0 字符</span>
+            </div>
+
+            <div class="segmented" role="tablist" aria-label="文章来源">
+              <button class="segment active" type="button" role="tab" aria-selected="true" data-source-mode="text">粘贴正文</button>
+              <button class="segment" type="button" role="tab" aria-selected="false" data-source-mode="url">文章 URL</button>
+            </div>
+
+            <div id="text-source-panel">
+              <label class="sr-only" for="source-text">文章正文</label>
+              <textarea id="source-text" rows="9" minlength="80" maxlength="100000" placeholder="在这里粘贴文章正文..." required></textarea>
+            </div>
+            <div id="url-source-panel" hidden>
+              <label class="field-label" for="source-url">公开网页地址</label>
+              <input id="source-url" type="url" inputmode="url" placeholder="https://example.com/article">
+            </div>
+          </section>
+
+          <section class="form-section">
+            <div class="section-heading">
+              <div>
+                <span class="section-number">02</span>
+                <h2>语言与难度</h2>
+              </div>
+            </div>
+
+            <label class="field-label">文章语言</label>
+            <div class="language-grid" id="language-control" role="radiogroup" aria-label="文章语言">
+              <button class="language-option active" type="button" role="radio" aria-checked="true" data-language="en"><strong>EN</strong><span>English</span></button>
+              <button class="language-option" type="button" role="radio" aria-checked="false" data-language="ja"><strong>日</strong><span>日本語</span></button>
+              <button class="language-option" type="button" role="radio" aria-checked="false" data-language="es"><strong>ES</strong><span>Español</span></button>
+            </div>
+
+            <div class="field-row">
+              <label>
+                <span class="field-label" id="level-label">CEFR 等级</span>
+                <select id="level-select"></select>
+              </label>
+              <label>
+                <span class="field-label">解析语言</span>
+                <select id="explanation-language">
+                  <option value="zh-CN">简体中文</option>
+                  <option value="en">English</option>
+                  <option value="ja">日本語</option>
+                  <option value="es">Español</option>
+                </select>
+              </label>
+            </div>
+
+            <label id="spanish-variant-field" hidden>
+              <span class="field-label">西班牙语变体</span>
+              <select id="spanish-variant">
+                <option value="neutral">中性书面语</option>
+                <option value="es-ES">西班牙</option>
+                <option value="es-MX">墨西哥</option>
+                <option value="es-AR">阿根廷</option>
+              </select>
+            </label>
+
+            <label class="toggle-row" id="furigana-field" hidden>
+              <span><strong>显示假名</strong><small>为日语目标词提供读音</small></span>
+              <input id="include-furigana" type="checkbox" checked>
+              <span class="toggle" aria-hidden="true"></span>
+            </label>
+          </section>
+
+          <section class="form-section">
+            <div class="section-heading">
+              <div>
+                <span class="section-number">03</span>
+                <h2>题目蓝图</h2>
+              </div>
+              <span class="total-count"><strong id="question-total">6</strong> 题</span>
+            </div>
+            <div class="question-blueprint" id="question-blueprint"></div>
+          </section>
+
+          <div class="form-actions">
+            <button class="button primary" id="generate-button" type="submit">
+              <span class="button-label">生成练习</span>
+              <span class="button-loader" aria-hidden="true"></span>
+            </button>
+            <p class="form-error" id="form-error" role="alert" hidden></p>
+          </div>
+        </form>
+      </aside>
+
+      <section class="result-panel" id="result-panel" aria-live="polite">
+        <div class="empty-state" id="empty-state">
+          <div class="empty-symbol" aria-hidden="true"><span>A</span><span>あ</span><span>Ñ</span></div>
+          <h1>阅读练习工作台</h1>
+          <p>等待文章与出题蓝图</p>
+          <div class="empty-stats" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+
+        <div class="loading-state" id="loading-state" hidden>
+          <div class="loading-header"><span></span><span></span></div>
+          <div class="loading-line wide"></div>
+          <div class="loading-line medium"></div>
+          <div class="loading-card">
+            <div class="loading-line short"></div>
+            <div class="loading-line wide"></div>
+            <div class="loading-option"></div>
+            <div class="loading-option"></div>
+            <div class="loading-option"></div>
+          </div>
+          <p id="loading-message">正在分析文章结构...</p>
+        </div>
+
+        <div class="quiz-view" id="quiz-view" hidden>
+          <header class="result-header">
+            <div>
+              <div class="result-kicker" id="result-kicker">EN · CEFR B1</div>
+              <h1 id="article-title"></h1>
+              <p id="article-summary"></p>
+            </div>
+            <div class="result-actions">
+              <button class="button secondary compact" id="export-json" type="button">导出 JSON</button>
+              <button class="icon-button" id="clear-result" type="button" aria-label="关闭练习" title="关闭练习">×</button>
+            </div>
+          </header>
+
+          <div class="result-meta">
+            <div class="topic-list" id="topic-list"></div>
+            <div class="quality-meter"><span>质量</span><strong id="quality-score"></strong></div>
+          </div>
+
+          <nav class="result-tabs" aria-label="结果视图">
+            <button class="result-tab active" type="button" data-result-tab="practice">练习</button>
+            <button class="result-tab" type="button" data-result-tab="article">文章</button>
+            <button class="result-tab" type="button" data-result-tab="vocabulary">词汇</button>
+          </nav>
+
+          <div class="tab-panel" id="practice-panel">
+            <div class="practice-toolbar">
+              <div>
+                <span id="question-position">第 1 题</span>
+                <span class="question-skill" id="question-skill"></span>
+              </div>
+              <span id="score-display">0 / 0</span>
+            </div>
+            <div class="progress-track"><span id="quiz-progress"></span></div>
+            <article class="question-card">
+              <span class="question-type" id="question-type"></span>
+              <h2 id="question-prompt"></h2>
+              <p class="furigana-line" id="question-furigana" hidden></p>
+              <div class="answer-options" id="answer-options"></div>
+              <div class="feedback" id="feedback" hidden>
+                <div class="feedback-title" id="feedback-title"></div>
+                <p id="answer-explanation"></p>
+                <blockquote id="evidence-quote"></blockquote>
+              </div>
+            </article>
+            <div class="question-navigation">
+              <button class="button secondary" id="previous-question" type="button">上一题</button>
+              <button class="button primary next-button" id="next-question" type="button" disabled>提交答案</button>
+            </div>
+          </div>
+
+          <div class="tab-panel article-panel" id="article-panel" hidden>
+            <div class="article-copy" id="article-copy"></div>
+          </div>
+
+          <div class="tab-panel vocabulary-panel" id="vocabulary-panel" hidden>
+            <div class="vocabulary-list" id="vocabulary-list"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status" hidden></div>
+
+    <dialog class="settings-dialog" id="model-settings-dialog" aria-labelledby="model-settings-title">
+      <div class="dialog-header">
+        <div>
+          <span class="section-number">MODEL</span>
+          <h2 id="model-settings-title">模型设置</h2>
+        </div>
+        <button class="icon-button" id="close-model-settings" type="button" aria-label="关闭模型设置" title="关闭">×</button>
+      </div>
+      <div class="dialog-body">
+        <label>
+          <span class="field-label">服务商</span>
+          <select id="provider-preset">
+            <option value="openai">OpenAI</option>
+            <option value="qwen">Qwen / DashScope</option>
+            <option value="deepseek">DeepSeek</option>
+            <option value="custom">自定义兼容接口</option>
+          </select>
+        </label>
+        <label>
+          <span class="field-label">Base URL</span>
+          <input id="model-base-url" type="url" inputmode="url" value="https://api.openai.com/v1" autocomplete="off">
+        </label>
+        <label>
+          <span class="field-label">模型名称</span>
+          <input id="model-name" type="text" placeholder="例如：gpt-4.1-mini" autocomplete="off" maxlength="200">
+        </label>
+        <label>
+          <span class="field-label">兼容模式</span>
+          <select id="model-compatibility-mode">
+            <option value="auto">自动识别（推荐）</option>
+            <option value="openai">标准 OpenAI 非流式</option>
+            <option value="qwen_stream">Qwen SSE 流式</option>
+          </select>
+        </label>
+        <label>
+          <span class="field-label">API Key</span>
+          <div class="secret-field">
+            <input id="model-api-key" type="password" placeholder="输入 API Key" autocomplete="off" maxlength="4096">
+            <button id="toggle-api-key" type="button">显示</button>
+          </div>
+        </label>
+        <label class="insecure-http-row" id="insecure-http-field" hidden>
+          <input id="allow-insecure-http" type="checkbox">
+          <span><strong>允许明文 HTTP</strong><small>API Key 将通过未加密连接发送，仅用于可信本机或内网服务</small></span>
+        </label>
+        <p class="privacy-note">“仅本次使用”只保留在页面内存；“保存为默认”写入本机私有配置文件，不写入浏览器存储。</p>
+        <p class="default-provider-status" id="default-provider-status">尚未保存本机默认模型</p>
+        <p class="form-error" id="model-settings-error" role="alert" hidden></p>
+      </div>
+      <div class="dialog-actions">
+        <button class="button secondary" id="clear-model-settings" type="button">清除默认</button>
+        <div>
+          <button class="button secondary" id="apply-model-settings" type="button">仅本次使用</button>
+          <button class="button primary" id="save-model-settings" type="button">保存为默认</button>
+        </div>
+      </div>
+    </dialog>
+  </body>
+</html>

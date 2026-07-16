@@ -1,0 +1,209 @@
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+try:
+    from fastapi.testclient import TestClient
+except ImportError:  # API dependencies are optional for core-only installs.
+    TestClient = None  # type: ignore[assignment,misc]
+
+from examples.demo_server import DemoProvider
+from polyglot_quiz.api import create_app
+from polyglot_quiz.providers import ProviderError
+
+
+class RateLimitedProvider:
+    model_name = "limited-model"
+    base_url = "http://llm.internal/v1"
+
+    def generate(self, prompt: str, response_model: type[object]) -> object:
+        raise ProviderError("Upstream HTTP 429; response=quota exhausted", status_code=429)
+
+
+@unittest.skipIf(TestClient is None, "FastAPI optional dependencies are not installed")
+class ApiTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.client = TestClient(create_app(DemoProvider()))
+
+    def test_frontend_and_assets_are_served(self) -> None:
+        page = self.client.get("/")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Polyglot Quiz", page.text)
+        self.assertEqual(self.client.get("/assets/app.js").status_code, 200)
+        self.assertEqual(self.client.get("/assets/styles.css").status_code, 200)
+
+    def test_config_lists_all_languages(self) -> None:
+        response = self.client.get("/v1/config")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["runtime_mode"], "demo")
+        self.assertEqual({item["code"] for item in response.json()["languages"]}, {"en", "ja", "es"})
+
+    def test_demo_generation_passes_pipeline(self) -> None:
+        request_path = Path(__file__).parents[1] / "examples" / "english-request.json"
+        request = json.loads(request_path.read_text())
+        request.pop("question_counts")
+        response = self.client.post("/v1/quizzes", json=request)
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(len(body["questions"]), 6)
+        self.assertEqual(body["metadata"]["model"], "demo-fixture")
+
+    def test_demo_rejects_custom_articles_with_clear_message(self) -> None:
+        response = self.client.post(
+            "/v1/quizzes",
+            json={
+                "source_text": "This custom article is deliberately different from the built-in demonstration article. "
+                "It is long enough to pass request validation but must not receive fixed fixture questions.",
+                "target_language": "en",
+                "level": "B1",
+            },
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("无密钥演示服务", response.json()["detail"])
+        self.assertNotIn("invented_quote", response.text)
+
+    def test_request_provider_headers_override_demo_provider(self) -> None:
+        request_path = Path(__file__).parents[1] / "examples" / "english-request.json"
+        request = json.loads(request_path.read_text())
+        request.pop("question_counts")
+        with (
+            patch("polyglot_quiz.api._validate_public_url") as url_validator,
+            patch("polyglot_quiz.api.OpenAICompatibleProvider") as provider_class,
+        ):
+            provider_class.return_value = DemoProvider()
+            response = self.client.post(
+                "/v1/quizzes",
+                json=request,
+                headers={
+                    "X-Quiz-LLM-API-Key": "browser-key",
+                    "X-Quiz-LLM-Model": "browser-model",
+                    "X-Quiz-LLM-Base-URL": "https://llm.example/v1",
+                },
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        url_validator.assert_called_once_with("https://llm.example/v1")
+        provider_class.assert_called_once_with(
+            api_key="browser-key",
+            model="browser-model",
+            base_url="https://llm.example/v1",
+            compatibility_mode="auto",
+        )
+
+    def test_partial_request_provider_is_rejected(self) -> None:
+        request_path = Path(__file__).parents[1] / "examples" / "english-request.json"
+        request = json.loads(request_path.read_text())
+        response = self.client.post(
+            "/v1/quizzes",
+            json=request,
+            headers={"X-Quiz-LLM-API-Key": "browser-key"},
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("必须同时包含", response.json()["detail"])
+
+    def test_http_request_provider_requires_explicit_confirmation(self) -> None:
+        request_path = Path(__file__).parents[1] / "examples" / "english-request.json"
+        request = json.loads(request_path.read_text())
+        response = self.client.post(
+            "/v1/quizzes",
+            json=request,
+            headers={
+                "X-Quiz-LLM-API-Key": "browser-key",
+                "X-Quiz-LLM-Model": "browser-model",
+                "X-Quiz-LLM-Base-URL": "http://127.0.0.1:9000/v1",
+            },
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("确认允许明文 HTTP", response.json()["detail"])
+
+    def test_confirmed_http_request_provider_is_allowed_in_demo_mode(self) -> None:
+        request_path = Path(__file__).parents[1] / "examples" / "english-request.json"
+        request = json.loads(request_path.read_text())
+        request.pop("question_counts")
+        with patch("polyglot_quiz.api.OpenAICompatibleProvider") as provider_class:
+            provider_class.return_value = DemoProvider()
+            response = self.client.post(
+                "/v1/quizzes",
+                json=request,
+                headers={
+                    "X-Quiz-LLM-API-Key": "browser-key",
+                    "X-Quiz-LLM-Model": "local-model",
+                    "X-Quiz-LLM-Base-URL": "http://127.0.0.1:9000/v1",
+                    "X-Quiz-Allow-Insecure-HTTP": "true",
+                    "X-Quiz-LLM-Compatibility": "qwen_stream",
+                },
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        provider_class.assert_called_once_with(
+            api_key="browser-key",
+            model="local-model",
+            base_url="http://127.0.0.1:9000/v1",
+            compatibility_mode="qwen_stream",
+        )
+
+    def test_rate_limit_is_logged_but_not_exposed_to_frontend(self) -> None:
+        client = TestClient(create_app(RateLimitedProvider()))
+        request_path = Path(__file__).parents[1] / "examples" / "english-request.json"
+        request = json.loads(request_path.read_text())
+        with self.assertLogs("uvicorn.error", level="ERROR") as logs:
+            response = client.post("/v1/quizzes", json=request)
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("限流或额度不足", response.json()["detail"])
+        self.assertNotIn("quota exhausted", response.text)
+        self.assertNotIn("llm.internal", response.text)
+        self.assertTrue(response.headers["X-Request-ID"])
+        self.assertIn("upstream_status=429", logs.output[0])
+        self.assertIn("quota exhausted", logs.output[0])
+
+    def test_default_provider_can_be_saved_and_deleted_without_exposing_key(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            settings_path = Path(directory) / "provider.json"
+            with patch("polyglot_quiz.providers.DEFAULT_PROVIDER_PATH", settings_path):
+                saved = self.client.put(
+                    "/v1/provider-settings",
+                    json={
+                        "api_key": "stored-secret",
+                        "model": "stored-model",
+                        "base_url": "http://127.0.0.1:9000/v1",
+                        "allow_insecure_http": True,
+                    },
+                )
+                self.assertEqual(saved.status_code, 200, saved.text)
+                self.assertTrue(saved.json()["configured"])
+                self.assertNotIn("stored-secret", saved.text)
+                self.assertEqual(settings_path.stat().st_mode & 0o777, 0o600)
+
+                loaded = self.client.get("/v1/provider-settings")
+                self.assertEqual(loaded.json()["model"], "stored-model")
+                self.assertNotIn("stored-secret", loaded.text)
+
+                deleted = self.client.delete("/v1/provider-settings")
+                self.assertFalse(deleted.json()["configured"])
+                self.assertFalse(settings_path.exists())
+
+    def test_successful_request_logs_pipeline_stages_without_article_text(self) -> None:
+        request_path = Path(__file__).parents[1] / "examples" / "english-request.json"
+        request = json.loads(request_path.read_text())
+        request.pop("question_counts")
+        with self.assertLogs("uvicorn.error", level="INFO") as logs:
+            response = self.client.post("/v1/quizzes", json=request)
+        self.assertEqual(response.status_code, 200)
+        output = "\n".join(logs.output)
+        for event in (
+            "request_received",
+            "pipeline_started",
+            "extraction_completed",
+            "analysis_started",
+            "analysis_completed",
+            "generation_started",
+            "quality_checked",
+            "pipeline_completed",
+            "request_completed",
+        ):
+            self.assertIn(f'"event": "{event}"', output)
+        self.assertNotIn(request["source_text"], output)
+
+
+if __name__ == "__main__":
+    unittest.main()

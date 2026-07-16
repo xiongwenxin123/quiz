@@ -1,0 +1,13 @@
+{
+  "source_text": "Cada vez más barrios organizan mercados de intercambio para dar una segunda vida a los objetos. Los participantes llevan libros, ropa o utensilios que ya no usan y los cambian por otros productos. La iniciativa no solo reduce los residuos, sino que también permite conocer a los vecinos. Para que el evento funcione, los organizadores piden que todos los objetos estén limpios y en buen estado. Así, el intercambio se convierte en una actividad útil y agradable para toda la comunidad.",
+  "target_language": "es",
+  "level": "B1",
+  "explanation_language": "zh-CN",
+  "spanish_variant": "neutral",
+  "question_counts": [
+    {"type": "detail", "count": 2},
+    {"type": "inference", "count": 1},
+    {"type": "vocabulary_context", "count": 1},
+    {"type": "grammar", "count": 1}
+  ]
+}

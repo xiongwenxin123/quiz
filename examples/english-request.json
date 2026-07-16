@@ -1,0 +1,13 @@
+{
+  "source_text": "Many cities are planting trees to reduce summer heat. Trees shade streets and release water vapor, which can lower nearby temperatures. However, urban trees need careful planning because roots may damage sidewalks and young trees require regular watering. Researchers recommend choosing native species and planting them where residents receive the greatest benefit. A successful program therefore combines environmental goals with long-term maintenance.",
+  "target_language": "en",
+  "level": "B1",
+  "explanation_language": "zh-CN",
+  "question_counts": [
+    {"type": "detail", "count": 2},
+    {"type": "inference", "count": 1},
+    {"type": "vocabulary_context", "count": 1},
+    {"type": "grammar", "count": 1}
+  ]
+}
+
