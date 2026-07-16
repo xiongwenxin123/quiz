@@ -8,11 +8,19 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from .extraction import ExtractionError, _validate_public_url
-from .models import QuizPackage, QuizRequest
+from .models import (
+    GradeCandidate,
+    GradeRequest,
+    GradeResponse,
+    QuestionType,
+    QuizPackage,
+    QuizRequest,
+)
 from .observability import log_event, reset_request_id, set_request_id
 from .pipeline import QuizPipeline, QuizQualityError
 from .progress import ProgressStore
 from .profiles import PROFILES
+from .prompts import build_grading_prompt
 from .providers import (
     LLMProvider,
     OpenAICompatibleProvider,
@@ -68,17 +76,7 @@ def create_app(provider: LLMProvider | None = None) -> Any:
                 }
                 for profile in PROFILES.values()
             ],
-            "question_types": [
-                "main_idea",
-                "detail",
-                "inference",
-                "author_purpose",
-                "vocabulary_context",
-                "cloze",
-                "grammar",
-                "true_false",
-                "short_answer",
-            ],
+            "question_types": [item.value for item in QuestionType],
         }
 
     @app.get("/v1/provider-settings")
@@ -121,6 +119,100 @@ def create_app(provider: LLMProvider | None = None) -> Any:
         removed = delete_stored_provider_settings()
         log_event("default_provider_deleted", removed=removed)
         return provider_settings_summary()
+
+    @app.post("/v1/grade", response_model=GradeResponse)
+    def grade_open_response(
+        request: GradeRequest,
+        api_key: str | None = Header(default=None, alias="X-Quiz-LLM-API-Key"),
+        model: str | None = Header(default=None, alias="X-Quiz-LLM-Model"),
+        base_url: str | None = Header(default=None, alias="X-Quiz-LLM-Base-URL"),
+        allow_insecure_http: str | None = Header(
+            default=None, alias="X-Quiz-Allow-Insecure-HTTP"
+        ),
+        compatibility_mode: Literal["auto", "openai", "qwen_stream"] = Header(
+            default="auto", alias="X-Quiz-LLM-Compatibility"
+        ),
+        client_request_id: str | None = Header(default=None, alias="X-Quiz-Request-ID"),
+    ) -> GradeResponse:
+        if client_request_id is not None and not _valid_request_id(client_request_id):
+            raise HTTPException(status_code=422, detail="Invalid request ID")
+        request_id = client_request_id or uuid4().hex[:12]
+        request_token = set_request_id(request_id)
+        started = perf_counter()
+        active_provider: LLMProvider | None = None
+        log_event(
+            "grading_request_received",
+            question_id=request.question.id,
+            question_type=request.question.type.value,
+            answer_chars=len(request.learner_answer),
+            rubric_dimensions=len(request.question.rubric),
+            evidence_sentences=len(request.evidence_sentences),
+        )
+        try:
+            request_provider = _provider_from_request_headers(
+                api_key,
+                model,
+                base_url,
+                allow_insecure_http=allow_insecure_http == "true",
+                compatibility_mode=compatibility_mode,
+            )
+            active_provider = request_provider or provider or OpenAICompatibleProvider.from_env()
+            candidate = active_provider.generate(
+                build_grading_prompt(request), GradeCandidate
+            )
+            expected_criteria = request.question.rubric
+            if len(candidate.dimensions) != len(expected_criteria):
+                raise ProviderError(
+                    "LLM grader returned an incomplete rubric",
+                    retryable=False,
+                )
+            dimensions = [
+                dimension.model_copy(update={"criterion": criterion})
+                for dimension, criterion in zip(
+                    candidate.dimensions, expected_criteria, strict=True
+                )
+            ]
+            total_score = round(
+                sum(dimension.score for dimension in dimensions)
+                / (5 * len(dimensions))
+                * 100
+            )
+            result = GradeResponse(
+                **candidate.model_dump(exclude={"dimensions"}),
+                dimensions=dimensions,
+                total_score=total_score,
+            )
+            log_event(
+                "grading_request_completed",
+                question_id=request.question.id,
+                question_type=request.question.type.value,
+                score=result.total_score,
+                dimension_scores=[item.score for item in result.dimensions],
+                elapsed_ms=round((perf_counter() - started) * 1000, 1),
+            )
+            return result
+        except ProviderError as exc:
+            logger.error(
+                "llm_grading_error request_id=%s model=%s base_url=%s upstream_status=%s error=%s",
+                request_id,
+                getattr(active_provider, "model_name", "unknown"),
+                getattr(active_provider, "base_url", "unknown"),
+                exc.status_code or "unknown",
+                exc,
+            )
+            if exc.status_code == 429:
+                detail = f"模型服务当前限流或额度不足，请稍后重试。请求 ID：{request_id}"
+                status_code = 503
+            else:
+                detail = f"AI 评分失败，请查看后端日志。请求 ID：{request_id}"
+                status_code = 502
+            raise HTTPException(
+                status_code=status_code,
+                detail=detail,
+                headers={"X-Request-ID": request_id},
+            ) from exc
+        finally:
+            reset_request_id(request_token)
 
     @app.post("/v1/quizzes", response_model=QuizPackage)
     def generate_quiz(

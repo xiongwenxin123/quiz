@@ -20,7 +20,7 @@ sources, licenses, regeneration, and accuracy limitations.
 - 输入语言、题目语言与解析语言分离；当前题目语言与文章目标语言一致
 - 文章分析与题目生成两阶段 LLM 调用
 - JSON 数据契约、原文句子 ID、逐题证据片段
-- 9 种题型、题数蓝图、日语假名字段和西语地区变体字段
+- 38 种题型，按基础理解、深层逻辑、语言词汇、写作输出、思辨拓展分类；默认仍为常用 9 题
 - 确定性质量门槛与最多 3 次自动返修
 - OpenAI-compatible JSON-mode 模型适配器
 - 响应式前端工作台、CLI、FastAPI 接口、示例请求和单元测试

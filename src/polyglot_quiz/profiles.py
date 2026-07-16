@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .models import QuestionType, TargetLanguage
+from .models import DEFAULT_QUESTION_TYPES, QuestionType, TargetLanguage
 
 
 @dataclass(frozen=True)
@@ -124,5 +124,5 @@ def get_profile(language: TargetLanguage, level: str) -> LanguageProfile:
 
 
 DEFAULT_TYPES: dict[TargetLanguage, tuple[QuestionType, ...]] = {
-    language: tuple(QuestionType) for language in TargetLanguage
+    language: DEFAULT_QUESTION_TYPES for language in TargetLanguage
 }

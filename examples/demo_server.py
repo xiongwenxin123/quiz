@@ -7,7 +7,7 @@ from typing import TypeVar
 from pydantic import BaseModel
 
 from polyglot_quiz.api import create_app
-from polyglot_quiz.models import ArticleAnalysis, CandidateQuestions, QuizRequest
+from polyglot_quiz.models import ArticleAnalysis, CandidateQuestions, GradeCandidate, QuizRequest
 
 
 T = TypeVar("T", bound=BaseModel)
@@ -30,6 +30,7 @@ DEMO_COUNTS = {
     "true_false": 1,
     "short_answer": 1,
 }
+SUMMARY_COUNTS = {"article_summary": 1}
 
 
 ANALYSIS = ArticleAnalysis.model_validate(
@@ -255,6 +256,50 @@ QUESTIONS = CandidateQuestions.model_validate(
     }
 )
 
+SUMMARY_QUESTION = CandidateQuestions.model_validate(
+    {
+        "questions": [
+            {
+                "id": "q1",
+                "type": "article_summary",
+                "prompt": "Summarize the article in 40-60 words.",
+                "options": [],
+                "accepted_answers": [
+                    "Urban trees reduce summer heat through shade and water vapor, but successful planting requires careful species selection, suitable locations, regular watering, and long-term maintenance. Cities must balance environmental goals with practical planning so residents receive lasting benefits."
+                ],
+                "evaluation_mode": "self_review",
+                "rubric": [
+                    "准确说明树木的降温作用",
+                    "包含规划或养护方面的挑战",
+                    "概括成功项目的关键条件",
+                    "语言连贯并符合 40-60 词要求",
+                ],
+                "word_limit": 60,
+                "explanation": "摘要应同时覆盖环境效益、实施挑战和长期维护，不能只复述单个细节。",
+                "evidence_sentence_ids": ["s1", "s2", "s3", "s4", "s5"],
+                "evidence_quote": "A successful program therefore combines environmental goals with long-term maintenance.",
+                "skill": "article summary writing",
+                "estimated_level": "B1",
+            }
+        ]
+    }
+)
+
+GRADE = GradeCandidate.model_validate(
+    {
+        "dimensions": [
+            {"criterion": "criterion 1", "score": 5, "feedback": "内容准确且切题。"},
+            {"criterion": "criterion 2", "score": 4, "feedback": "原文依据较充分。"},
+            {"criterion": "criterion 3", "score": 4, "feedback": "结构清楚，可加强衔接。"},
+            {"criterion": "criterion 4", "score": 3, "feedback": "语言可理解，但仍有少量错误。"},
+        ],
+        "strengths": ["覆盖了文章核心观点", "能够引用文章信息"],
+        "improvements": ["补充更具体的论据", "检查句子之间的衔接"],
+        "overall_feedback": "回答与题目相关，内容和结构较完整，语言仍有提升空间。",
+        "revised_example": "A stronger response would state the main claim, support it with a specific detail, and end with a clear conclusion.",
+    }
+)
+
 
 class DemoProvider:
     model_name = "demo-fixture"
@@ -266,11 +311,11 @@ class DemoProvider:
             request.source_text == DEMO_SOURCE
             and request.target_language.value == "en"
             and request.level.upper() == "B1"
-            and counts == DEMO_COUNTS
+            and counts in (DEMO_COUNTS, SUMMARY_COUNTS)
         )
         if not valid:
             raise ValueError(
-                "当前运行的是无密钥演示服务，只支持点击“载入示例”后的英文 B1 默认 9 题。"
+                "当前运行的是无密钥演示服务，只支持内置英文 B1 示例的默认 9 题或单道全文摘要。"
                 "使用自己的文章需要配置 QUIZ_LLM_API_KEY 和 QUIZ_LLM_MODEL，"
                 "然后启动 polyglot_quiz.api:app。"
             )
@@ -279,7 +324,11 @@ class DemoProvider:
         if response_model is ArticleAnalysis:
             return ANALYSIS.model_copy(deep=True)  # type: ignore[return-value]
         if response_model is CandidateQuestions:
+            if "- article_summary: 1" in prompt:
+                return SUMMARY_QUESTION.model_copy(deep=True)  # type: ignore[return-value]
             return QUESTIONS.model_copy(deep=True)  # type: ignore[return-value]
+        if response_model is GradeCandidate:
+            return GRADE.model_copy(deep=True)  # type: ignore[return-value]
         raise TypeError(f"Unsupported response model: {response_model}")
 
 

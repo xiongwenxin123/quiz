@@ -13,15 +13,101 @@ class TargetLanguage(StrEnum):
 
 
 class QuestionType(StrEnum):
-    MAIN_IDEA = "main_idea"
     DETAIL = "detail"
+    TRUE_FALSE = "true_false"
+    TRUE_FALSE_NOT_GIVEN = "true_false_not_given"
+    REFERENCE = "reference"
+    INFORMATION_MATCHING = "information_matching"
+    SUMMARY_COMPLETION = "summary_completion"
+    SHORT_ANSWER = "short_answer"
+    CHART_COMPLETION = "chart_completion"
+    EVENT_ORDERING = "event_ordering"
+
+    MAIN_IDEA = "main_idea"
+    PARAGRAPH_MAIN_IDEA = "paragraph_main_idea"
+    TEXT_STRUCTURE = "text_structure"
+    PARAGRAPH_FUNCTION = "paragraph_function"
     INFERENCE = "inference"
+    AUTHOR_ATTITUDE = "author_attitude"
     AUTHOR_PURPOSE = "author_purpose"
+    LOGICAL_RELATIONSHIP = "logical_relationship"
+
     VOCABULARY_CONTEXT = "vocabulary_context"
     CLOZE = "cloze"
     GRAMMAR = "grammar"
-    TRUE_FALSE = "true_false"
-    SHORT_ANSWER = "short_answer"
+    SENTENCE_TRANSLATION = "sentence_translation"
+    SENTENCE_REWRITE = "sentence_rewrite"
+    COLLOCATION_EXTRACTION = "collocation_extraction"
+    TRANSLATION_TO_TARGET = "translation_to_target"
+    PARAGRAPH_TRANSLATION = "paragraph_translation"
+    QUESTION_FORMATION = "question_formation"
+
+    PARAGRAPH_SUMMARY = "paragraph_summary"
+    ARTICLE_SUMMARY = "article_summary"
+    PARAPHRASE = "paraphrase"
+    REFLECTION_WRITING = "reflection_writing"
+    ARGUMENT_WRITING = "argument_writing"
+    LETTER_WRITING = "letter_writing"
+    RETELLING = "retelling"
+    COMPARISON_WRITING = "comparison_writing"
+
+    CRITICAL_RESPONSE = "critical_response"
+    REAL_WORLD_CONNECTION = "real_world_connection"
+    RESEARCH_EXTENSION = "research_extension"
+    SOLUTION_PROPOSAL = "solution_proposal"
+
+
+DEFAULT_QUESTION_TYPES = (
+    QuestionType.MAIN_IDEA,
+    QuestionType.DETAIL,
+    QuestionType.INFERENCE,
+    QuestionType.AUTHOR_PURPOSE,
+    QuestionType.VOCABULARY_CONTEXT,
+    QuestionType.CLOZE,
+    QuestionType.GRAMMAR,
+    QuestionType.TRUE_FALSE,
+    QuestionType.SHORT_ANSWER,
+)
+
+OPEN_RESPONSE_TYPES = frozenset(
+    {
+        QuestionType.SUMMARY_COMPLETION,
+        QuestionType.SHORT_ANSWER,
+        QuestionType.CHART_COMPLETION,
+        QuestionType.SENTENCE_TRANSLATION,
+        QuestionType.SENTENCE_REWRITE,
+        QuestionType.COLLOCATION_EXTRACTION,
+        QuestionType.TRANSLATION_TO_TARGET,
+        QuestionType.PARAGRAPH_TRANSLATION,
+        QuestionType.QUESTION_FORMATION,
+        QuestionType.PARAGRAPH_SUMMARY,
+        QuestionType.ARTICLE_SUMMARY,
+        QuestionType.PARAPHRASE,
+        QuestionType.REFLECTION_WRITING,
+        QuestionType.ARGUMENT_WRITING,
+        QuestionType.LETTER_WRITING,
+        QuestionType.RETELLING,
+        QuestionType.COMPARISON_WRITING,
+        QuestionType.CRITICAL_RESPONSE,
+        QuestionType.REAL_WORLD_CONNECTION,
+        QuestionType.RESEARCH_EXTENSION,
+        QuestionType.SOLUTION_PROPOSAL,
+    }
+)
+
+SELF_REVIEW_TYPES = frozenset(
+    OPEN_RESPONSE_TYPES
+    - {
+        QuestionType.SUMMARY_COMPLETION,
+        QuestionType.SHORT_ANSWER,
+        QuestionType.CHART_COMPLETION,
+    }
+)
+
+
+class EvaluationMode(StrEnum):
+    AUTO = "auto"
+    SELF_REVIEW = "self_review"
 
 
 class QuestionCount(BaseModel):
@@ -36,7 +122,9 @@ class QuizRequest(BaseModel):
     level: str
     explanation_language: str = Field(default="zh-CN", min_length=2, max_length=16)
     question_counts: list[QuestionCount] = Field(
-        default_factory=lambda: [QuestionCount(type=item, count=1) for item in QuestionType]
+        default_factory=lambda: [
+            QuestionCount(type=item, count=1) for item in DEFAULT_QUESTION_TYPES
+        ]
     )
     learner_locale: str | None = Field(default=None, max_length=16)
     spanish_variant: Literal["neutral", "es-ES", "es-MX", "es-AR"] = "neutral"
@@ -49,6 +137,8 @@ class QuizRequest(BaseModel):
             raise ValueError("Provide exactly one of source_text or source_url")
         if not any(item.count for item in self.question_counts):
             raise ValueError("At least one question must be requested")
+        if sum(item.count for item in self.question_counts) > 50:
+            raise ValueError("At most 50 questions may be requested")
         seen: set[QuestionType] = set()
         for item in self.question_counts:
             if item.type in seen:
@@ -137,6 +227,9 @@ class Question(BaseModel):
     options: list[AnswerOption] = Field(default_factory=list, max_length=6)
     correct_option_id: str | None = Field(default=None, pattern=r"^[A-F]$")
     accepted_answers: list[str] = Field(default_factory=list, max_length=8)
+    evaluation_mode: EvaluationMode = EvaluationMode.AUTO
+    rubric: list[str] = Field(default_factory=list, max_length=8)
+    word_limit: int | None = Field(default=None, ge=1, le=2000)
     explanation: str = Field(min_length=3, max_length=2000)
     evidence_sentence_ids: list[str] = Field(min_length=1, max_length=5)
     evidence_quote: str = Field(min_length=1, max_length=1500)
@@ -159,6 +252,11 @@ class Question(BaseModel):
             raise ValueError("Open questions need at least one accepted answer")
         elif self.correct_option_id is not None:
             raise ValueError("Open questions cannot have correct_option_id")
+        if self.evaluation_mode == EvaluationMode.SELF_REVIEW:
+            if self.options:
+                raise ValueError("Self-review questions cannot have options")
+            if not self.rubric:
+                raise ValueError("Self-review questions need rubric criteria")
         return self
 
 
@@ -173,6 +271,45 @@ class QuizMetadata(BaseModel):
 
 class CandidateQuestions(BaseModel):
     questions: list[Question] = Field(min_length=1)
+
+
+class GradeRequest(BaseModel):
+    question: Question
+    learner_answer: str = Field(min_length=1, max_length=20_000)
+    evidence_sentences: list[Sentence] = Field(min_length=1, max_length=5)
+    target_language: TargetLanguage
+    explanation_language: str = Field(default="zh-CN", min_length=2, max_length=16)
+
+    @model_validator(mode="after")
+    def gradeable_self_review_question(self) -> GradeRequest:
+        if self.question.evaluation_mode != EvaluationMode.SELF_REVIEW:
+            raise ValueError("Only self-review questions use AI grading")
+        supplied_ids = {sentence.id for sentence in self.evidence_sentences}
+        missing = set(self.question.evidence_sentence_ids) - supplied_ids
+        if missing:
+            raise ValueError(
+                "Missing evidence sentences for grading: " + ", ".join(sorted(missing))
+            )
+        return self
+
+
+class GradeDimension(BaseModel):
+    criterion: str = Field(min_length=2, max_length=300)
+    score: int = Field(ge=0, le=5)
+    feedback: str = Field(min_length=2, max_length=1000)
+
+
+class GradeCandidate(BaseModel):
+    dimensions: list[GradeDimension] = Field(min_length=1, max_length=8)
+    strengths: list[str] = Field(min_length=1, max_length=6)
+    improvements: list[str] = Field(min_length=1, max_length=6)
+    overall_feedback: str = Field(min_length=2, max_length=2000)
+    revised_example: str = Field(min_length=2, max_length=8000)
+
+
+class GradeResponse(GradeCandidate):
+    total_score: int = Field(ge=0, le=100)
+    max_score: Literal[100] = 100
 
 
 class QuizPackage(BaseModel):

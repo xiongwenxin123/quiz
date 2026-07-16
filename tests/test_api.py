@@ -12,6 +12,7 @@ except ImportError:  # API dependencies are optional for core-only installs.
 
 from examples.demo_server import DemoProvider
 from polyglot_quiz.api import create_app
+from polyglot_quiz.models import QuestionType
 from polyglot_quiz.providers import ProviderError
 
 
@@ -40,6 +41,43 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["runtime_mode"], "demo")
         self.assertEqual({item["code"] for item in response.json()["languages"]}, {"en", "ja", "es"})
+        self.assertEqual(response.json()["question_types"], [item.value for item in QuestionType])
+
+    def test_self_review_answer_can_be_graded_with_deterministic_total(self) -> None:
+        question = {
+            "id": "q1",
+            "type": "article_summary",
+            "prompt": "Summarize the article in no more than 60 words.",
+            "accepted_answers": ["Trees cool cities but require planning and maintenance."],
+            "evaluation_mode": "self_review",
+            "rubric": ["内容准确", "原文依据", "结构组织", "语言质量"],
+            "word_limit": 60,
+            "explanation": "Use the rubric to review the response.",
+            "evidence_sentence_ids": ["s1"],
+            "evidence_quote": "Many cities are planting trees to reduce summer heat.",
+            "skill": "summary writing",
+            "estimated_level": "B1",
+        }
+        response = self.client.post(
+            "/v1/grade",
+            json={
+                "question": question,
+                "learner_answer": "Trees can cool cities, although successful programs also need planning and long-term care.",
+                "evidence_sentences": [
+                    {"id": "s1", "text": "Many cities are planting trees to reduce summer heat."}
+                ],
+                "target_language": "en",
+                "explanation_language": "zh-CN",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["total_score"], 80)
+        self.assertEqual(body["max_score"], 100)
+        self.assertEqual(
+            [item["criterion"] for item in body["dimensions"]],
+            question["rubric"],
+        )
 
     def test_demo_generation_passes_pipeline(self) -> None:
         request_path = Path(__file__).parents[1] / "examples" / "english-request.json"
@@ -70,6 +108,18 @@ class ApiTests(unittest.TestCase):
             max(four_choice_positions.values()) - min(four_choice_positions.values()),
             1,
         )
+
+    def test_demo_generates_open_summary_with_self_review_fields(self) -> None:
+        request_path = Path(__file__).parents[1] / "examples" / "english-request.json"
+        request = json.loads(request_path.read_text())
+        request["question_counts"] = [{"type": "article_summary", "count": 1}]
+        response = self.client.post("/v1/quizzes", json=request)
+        self.assertEqual(response.status_code, 200, response.text)
+        question = response.json()["questions"][0]
+        self.assertEqual(question["type"], "article_summary")
+        self.assertEqual(question["evaluation_mode"], "self_review")
+        self.assertEqual(len(question["rubric"]), 4)
+        self.assertEqual(question["options"], [])
 
     def test_generation_progress_uses_client_request_id(self) -> None:
         request_path = Path(__file__).parents[1] / "examples" / "english-request.json"

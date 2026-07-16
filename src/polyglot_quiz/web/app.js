@@ -4,17 +4,72 @@ const languageDefaults = {
   es: { label: "ES", system: "CEFR", levels: ["A1", "A2", "B1", "B2", "C1", "C2"], defaultLevel: "B1" },
 };
 
-const questionTypes = [
-  { id: "main_idea", label: "主旨理解", hint: "全文核心观点", count: 1 },
-  { id: "detail", label: "细节定位", hint: "事实与信息关系", count: 1 },
-  { id: "inference", label: "推断理解", hint: "文本强支持结论", count: 1 },
-  { id: "author_purpose", label: "作者目的", hint: "结构、态度与作用", count: 1 },
-  { id: "vocabulary_context", label: "语境词汇", hint: "当前语境中的意义", count: 1 },
-  { id: "cloze", label: "语境完形", hint: "搭配与篇章衔接", count: 1 },
-  { id: "grammar", label: "语法应用", hint: "形式、意义与功能", count: 1 },
-  { id: "true_false", label: "判断题", hint: "快速验证陈述", count: 1 },
-  { id: "short_answer", label: "简答题", hint: "主动提取与表达", count: 1 },
+const questionTypeGroups = [
+  {
+    id: "basic", label: "基础理解", hint: "定位、匹配与信息提取", open: true,
+    items: [
+      { id: "detail", label: "细节事实", hint: "人物、时间、地点、原因", count: 1 },
+      { id: "true_false", label: "正误判断", hint: "True / False", count: 1 },
+      { id: "true_false_not_given", label: "T / F / NG", hint: "含 Not Given", count: 0 },
+      { id: "reference", label: "词义指代", hint: "it / this 指向内容", count: 0 },
+      { id: "information_matching", label: "信息匹配", hint: "段落、人物或事件匹配", count: 0 },
+      { id: "summary_completion", label: "摘要填空", hint: "限定词数提取答案", count: 0 },
+      { id: "short_answer", label: "信息简答", hint: "简短提取原文信息", count: 1 },
+      { id: "chart_completion", label: "图表流程填空", hint: "原因、结果或流程节点", count: 0 },
+      { id: "event_ordering", label: "事件排序", hint: "时间线与步骤顺序", count: 0 },
+    ],
+  },
+  {
+    id: "logic", label: "深层逻辑", hint: "主旨、结构、态度与推理", open: false,
+    items: [
+      { id: "main_idea", label: "全文主旨", hint: "中心思想或最佳标题", count: 1 },
+      { id: "paragraph_main_idea", label: "段落主旨", hint: "指定段落核心内容", count: 0 },
+      { id: "text_structure", label: "文章结构", hint: "时间、对比、问题解决", count: 0 },
+      { id: "paragraph_function", label: "段落作用", hint: "引入、转折、论证、总结", count: 0 },
+      { id: "inference", label: "推理判断", hint: "文本强支持的结论", count: 1 },
+      { id: "author_attitude", label: "作者态度", hint: "支持、批判、中立或怀疑", count: 0 },
+      { id: "author_purpose", label: "写作目的", hint: "例子、引语或细节的作用", count: 1 },
+      { id: "logical_relationship", label: "隐含逻辑", hint: "因果、对比、递进、举例", count: 0 },
+    ],
+  },
+  {
+    id: "language", label: "语言词汇", hint: "词义、语法、翻译与改写", open: false,
+    items: [
+      { id: "vocabulary_context", label: "语境词义", hint: "生词在原文中的含义", count: 1 },
+      { id: "cloze", label: "语境完形", hint: "词汇、搭配与衔接", count: 1 },
+      { id: "grammar", label: "语法挖空", hint: "时态、非谓语、从句等", count: 1 },
+      { id: "sentence_translation", label: "长难句翻译", hint: "原文句子译为中文", count: 0 },
+      { id: "sentence_rewrite", label: "句子改写", hint: "保持原意进行转述", count: 0 },
+      { id: "collocation_extraction", label: "搭配提取", hint: "提取固定搭配并运用", count: 0 },
+      { id: "translation_to_target", label: "中译外", hint: "使用原文词汇句式翻译", count: 0 },
+      { id: "paragraph_translation", label: "段落翻译", hint: "完整翻译指定段落", count: 0 },
+      { id: "question_formation", label: "划线提问", hint: "针对信息写特殊疑问句", count: 0 },
+    ],
+  },
+  {
+    id: "writing", label: "写作输出", hint: "概括、转述与读后写作", open: false,
+    items: [
+      { id: "paragraph_summary", label: "段落概括", hint: "限定词数概括一段", count: 0 },
+      { id: "article_summary", label: "全文摘要", hint: "整篇内容压缩表达", count: 0 },
+      { id: "paraphrase", label: "观点转述", hint: "用自己的话解释结论", count: 0 },
+      { id: "reflection_writing", label: "读后感", hint: "联系原文进行反思", count: 0 },
+      { id: "argument_writing", label: "议论文", hint: "同意或反对并给出理由", count: 0 },
+      { id: "letter_writing", label: "书信写作", hint: "给人物或机构写建议信", count: 0 },
+      { id: "retelling", label: "复述", hint: "复述故事、过程或研究", count: 0 },
+      { id: "comparison_writing", label: "对比写作", hint: "原文观点与经验比较", count: 0 },
+    ],
+  },
+  {
+    id: "critical", label: "思辨拓展", hint: "评价、迁移、研究与方案", open: false,
+    items: [
+      { id: "critical_response", label: "观点评价", hint: "是否同意作者并说明理由", count: 0 },
+      { id: "real_world_connection", label: "现实联系", hint: "联系生活中的类似问题", count: 0 },
+      { id: "research_extension", label: "研究拓展", hint: "设计可行的后续研究", count: 0 },
+      { id: "solution_proposal", label: "解决方案", hint: "针对问题提出具体建议", count: 0 },
+    ],
+  },
 ];
+const questionTypes = questionTypeGroups.flatMap((group) => group.items);
 
 const typeLabels = Object.fromEntries(questionTypes.map((item) => [item.id, item.label]));
 const sampleArticles = {
@@ -32,6 +87,9 @@ const state = {
   answers: {},
   submitted: {},
   scores: {},
+  grades: {},
+  grading: {},
+  gradeErrors: {},
   progressTimer: null,
   activeRequestId: null,
   runtimeMode: "production",
@@ -58,20 +116,30 @@ function escapeHtml(value) {
 }
 
 function renderBlueprint() {
-  $("#question-blueprint").innerHTML = questionTypes.map((item) => `
-    <div class="blueprint-row">
-      <div class="blueprint-label"><strong>${item.label}</strong><small>${item.hint}</small></div>
-      <div class="stepper" data-question-type="${item.id}">
-        <button type="button" data-delta="-1" aria-label="减少${item.label}" title="减少">−</button>
-        <output>${state.counts[item.id]}</output>
-        <button type="button" data-delta="1" aria-label="增加${item.label}" title="增加">+</button>
-      </div>
-    </div>`).join("");
+  $("#question-blueprint").innerHTML = questionTypeGroups.map((group) => `
+    <details class="blueprint-group" data-question-group="${group.id}" ${group.open ? "open" : ""}>
+      <summary><span><strong>${group.label}</strong><small>${group.hint}</small></span><output data-group-count="${group.id}">0</output></summary>
+      <div class="blueprint-group-items">${group.items.map((item) => `
+        <div class="blueprint-row">
+          <div class="blueprint-label"><strong>${item.label}</strong><small>${item.hint}</small></div>
+          <div class="stepper" data-question-type="${item.id}">
+            <button type="button" data-delta="-1" aria-label="减少${item.label}" title="减少">−</button>
+            <output>${state.counts[item.id]}</output>
+            <button type="button" data-delta="1" aria-label="增加${item.label}" title="增加">+</button>
+          </div>
+        </div>`).join("")}</div>
+    </details>`).join("");
   updateTotal();
 }
 
 function updateTotal() {
   $("#question-total").textContent = Object.values(state.counts).reduce((sum, value) => sum + value, 0);
+  questionTypeGroups.forEach((group) => {
+    const selected = group.items.reduce((sum, item) => sum + state.counts[item.id], 0);
+    const output = $(`[data-group-count="${group.id}"]`);
+    output.textContent = `${selected} 题`;
+    output.classList.toggle("selected", selected > 0);
+  });
 }
 
 function setLanguage(language) {
@@ -121,6 +189,7 @@ function buildRequest() {
 
 function validateRequest(request) {
   if (!request.question_counts.length) return "请至少选择一道题。";
+  if (request.question_counts.reduce((sum, item) => sum + item.count, 0) > 50) return "单次最多生成 50 道题。";
   if (state.sourceMode === "text" && request.source_text.length < 80) return "文章正文至少需要 80 个字符。";
   if (state.sourceMode === "url" && !request.source_url) return "请输入公开文章 URL。";
   return "";
@@ -175,6 +244,21 @@ function parseError(body, status) {
   return `生成失败（HTTP ${status}）`;
 }
 
+function buildProviderHeaders(requestId) {
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Quiz-Request-ID": requestId,
+  };
+  if (state.providerSettings) {
+    headers["X-Quiz-LLM-API-Key"] = state.providerSettings.apiKey;
+    headers["X-Quiz-LLM-Model"] = state.providerSettings.model;
+    headers["X-Quiz-LLM-Base-URL"] = state.providerSettings.baseUrl;
+    headers["X-Quiz-LLM-Compatibility"] = state.providerSettings.compatibilityMode;
+    if (state.providerSettings.allowInsecureHttp) headers["X-Quiz-Allow-Insecure-HTTP"] = "true";
+  }
+  return headers;
+}
+
 async function generateQuiz(event) {
   event.preventDefault();
   const request = buildRequest();
@@ -189,20 +273,9 @@ async function generateQuiz(event) {
   setLoading(true);
   state.progressTimer = setTimeout(() => pollProgress(requestId), 150);
   try {
-    const headers = {
-      "Content-Type": "application/json",
-      "X-Quiz-Request-ID": requestId,
-    };
-    if (state.providerSettings) {
-      headers["X-Quiz-LLM-API-Key"] = state.providerSettings.apiKey;
-      headers["X-Quiz-LLM-Model"] = state.providerSettings.model;
-      headers["X-Quiz-LLM-Base-URL"] = state.providerSettings.baseUrl;
-      headers["X-Quiz-LLM-Compatibility"] = state.providerSettings.compatibilityMode;
-      if (state.providerSettings.allowInsecureHttp) headers["X-Quiz-Allow-Insecure-HTTP"] = "true";
-    }
     const response = await fetch("/v1/quizzes", {
       method: "POST",
-      headers,
+      headers: buildProviderHeaders(requestId),
       body: JSON.stringify(request),
     });
     const body = await response.json().catch(() => ({}));
@@ -212,6 +285,9 @@ async function generateQuiz(event) {
     state.answers = {};
     state.submitted = {};
     state.scores = {};
+    state.grades = {};
+    state.grading = {};
+    state.gradeErrors = {};
     renderPackage();
   } catch (caught) {
     $("#form-error").textContent = caught.message || "生成失败，请检查服务配置。";
@@ -297,6 +373,7 @@ function renderQuestion() {
   const question = questions[state.questionIndex];
   const submitted = Boolean(state.submitted[question.id]);
   const selected = state.answers[question.id];
+  const selfReview = question.evaluation_mode === "self_review";
   $("#question-position").textContent = `第 ${state.questionIndex + 1} 题 / ${questions.length}`;
   $("#question-skill").textContent = question.skill;
   $("#question-type").textContent = typeLabels[question.type] || question.type;
@@ -304,7 +381,7 @@ function renderQuestion() {
   $("#question-furigana").textContent = question.furigana || "";
   $("#question-furigana").hidden = !question.furigana;
   $("#quiz-progress").style.width = `${((state.questionIndex + (submitted ? 1 : 0)) / questions.length) * 100}%`;
-  $("#score-display").textContent = `${Object.values(state.scores).filter(Boolean).length} / ${Object.keys(state.submitted).length}`;
+  $("#score-display").textContent = scoreSummary();
   $("#previous-question").disabled = state.questionIndex === 0;
   $("#next-question").textContent = submitted ? (state.questionIndex === questions.length - 1 ? "完成练习" : "下一题") : "提交答案";
   $("#next-question").disabled = !submitted && !selected;
@@ -318,18 +395,55 @@ function renderQuestion() {
       return `<button class="${classes.join(" ")}" type="button" data-option-id="${escapeHtml(option.id)}" ${submitted ? "disabled" : ""}><span class="option-id">${escapeHtml(option.id)}</span><span class="option-text">${escapeHtml(option.text)}</span></button>`;
     }).join("");
   } else {
-    $("#answer-options").innerHTML = `<textarea class="short-answer-input" id="short-answer" placeholder="输入你的答案..." ${submitted ? "disabled" : ""}>${escapeHtml(selected || "")}</textarea>`;
+    const limit = question.word_limit ? `建议不超过 ${question.word_limit} 词` : "输入你的答案...";
+    const longResponse = selfReview || (question.word_limit || 0) > 80;
+    $("#answer-options").innerHTML = `<textarea class="short-answer-input${longResponse ? " extended" : ""}" id="short-answer" placeholder="${escapeHtml(limit)}" ${submitted ? "disabled" : ""}>${escapeHtml(selected || "")}</textarea>`;
   }
 
   const feedback = $("#feedback");
   feedback.hidden = !submitted;
   if (submitted) {
     const correct = state.scores[question.id];
-    feedback.classList.toggle("incorrect", !correct);
-    $("#feedback-title").textContent = correct ? "回答正确" : `正确答案：${correctAnswerText(question)}`;
+    feedback.classList.toggle("incorrect", !selfReview && !correct);
+    feedback.classList.toggle("self-review", selfReview);
+    $("#feedback-title").textContent = selfReview
+      ? "请对照参考答案与评分要点自评"
+      : correct ? "回答正确" : `正确答案：${correctAnswerText(question)}`;
+    $("#reference-answer-block").hidden = !selfReview;
+    $("#reference-answer").textContent = selfReview ? correctAnswerText(question) : "";
+    $("#rubric-block").hidden = !selfReview || !(question.rubric || []).length;
+    $("#answer-rubric").innerHTML = (question.rubric || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+    const grading = Boolean(state.grading[question.id]);
+    const grade = state.grades[question.id];
+    const gradeError = state.gradeErrors[question.id];
+    $("#ai-grade-actions").hidden = !selfReview;
+    $("#ai-grade-button").disabled = grading;
+    $("#ai-grade-button").textContent = grading ? "正在评分..." : grade ? "重新评分" : "AI 评分";
+    $("#ai-grade-result").hidden = !selfReview || (!grade && !gradeError);
+    $("#ai-grade-result").innerHTML = grade
+      ? renderGradeResult(grade)
+      : gradeError ? `<p class="grade-error">${escapeHtml(gradeError)}</p>` : "";
     $("#answer-explanation").textContent = question.explanation;
     $("#evidence-quote").textContent = question.evidence_quote;
   }
+}
+
+function renderGradeResult(grade) {
+  const dimensions = grade.dimensions.map((item) => `
+    <li>
+      <div><strong>${escapeHtml(item.criterion)}</strong><span>${item.score} / 5</span></div>
+      <div class="grade-meter"><span style="width:${item.score * 20}%"></span></div>
+      <p>${escapeHtml(item.feedback)}</p>
+    </li>`).join("");
+  const list = (items) => `<ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+  return `
+    <header class="grade-summary"><div><strong>${grade.total_score}</strong><span>/ ${grade.max_score}</span></div><p>${escapeHtml(grade.overall_feedback)}</p></header>
+    <section><span class="grade-label">分项评分</span><ol class="grade-dimensions">${dimensions}</ol></section>
+    <div class="grade-columns">
+      <section><span class="grade-label">做得好的地方</span>${list(grade.strengths)}</section>
+      <section><span class="grade-label">改进建议</span>${list(grade.improvements)}</section>
+    </div>
+    <section class="grade-revision"><span class="grade-label">优化示例</span><p>${escapeHtml(grade.revised_example)}</p></section>`;
 }
 
 function correctAnswerText(question) {
@@ -341,14 +455,63 @@ function normalizeAnswer(value) {
   return String(value || "").trim().toLocaleLowerCase().replace(/[\s。！？.,!?]+$/u, "");
 }
 
+function scoreSummary() {
+  const submittedIds = Object.keys(state.submitted);
+  const autoScores = submittedIds.map((id) => state.scores[id]).filter((value) => value !== null && value !== undefined);
+  const selfReviewed = submittedIds.length - autoScores.length;
+  const autoText = `${autoScores.filter(Boolean).length} / ${autoScores.length}`;
+  return selfReviewed ? `${autoText} · 自评 ${selfReviewed}` : autoText;
+}
+
+async function gradeOpenResponse() {
+  const question = state.package.questions[state.questionIndex];
+  if (!state.submitted[question.id] || question.evaluation_mode !== "self_review") return;
+  const learnerAnswer = state.answers[question.id]?.trim();
+  if (!learnerAnswer || state.grading[question.id]) return;
+
+  const sentenceById = Object.fromEntries(
+    state.package.article.sentences.map((sentence) => [sentence.id, sentence])
+  );
+  const evidenceSentences = question.evidence_sentence_ids
+    .map((id) => sentenceById[id])
+    .filter(Boolean);
+  const requestId = createRequestId();
+  state.grading[question.id] = true;
+  delete state.gradeErrors[question.id];
+  renderQuestion();
+  try {
+    const response = await fetch("/v1/grade", {
+      method: "POST",
+      headers: buildProviderHeaders(requestId),
+      body: JSON.stringify({
+        question,
+        learner_answer: learnerAnswer,
+        evidence_sentences: evidenceSentences,
+        target_language: state.package.metadata.target_language,
+        explanation_language: state.package.metadata.explanation_language,
+      }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(parseError(body, response.status));
+    state.grades[question.id] = body;
+  } catch (caught) {
+    state.gradeErrors[question.id] = caught.message || "AI 评分失败，请稍后重试。";
+  } finally {
+    state.grading[question.id] = false;
+    if (state.package.questions[state.questionIndex]?.id === question.id) renderQuestion();
+  }
+}
+
 function submitOrAdvance() {
   const questions = state.package.questions;
   const question = questions[state.questionIndex];
   if (!state.submitted[question.id]) {
     const selected = state.answers[question.id];
-    const correct = question.options?.length
-      ? selected === question.correct_option_id
-      : question.accepted_answers.some((answer) => normalizeAnswer(answer) === normalizeAnswer(selected));
+    const correct = question.evaluation_mode === "self_review"
+      ? null
+      : question.options?.length
+        ? selected === question.correct_option_id
+        : question.accepted_answers.some((answer) => normalizeAnswer(answer) === normalizeAnswer(selected));
     state.submitted[question.id] = true;
     state.scores[question.id] = correct;
     renderQuestion();
@@ -358,7 +521,7 @@ function submitOrAdvance() {
     state.questionIndex += 1;
     renderQuestion();
   } else {
-    showToast(`练习完成：${Object.values(state.scores).filter(Boolean).length} / ${questions.length}`);
+    showToast(`练习完成：${scoreSummary()}`);
     selectResultTab("article");
   }
 }
@@ -573,6 +736,7 @@ function initializeEvents() {
     $("#next-question").disabled = !event.target.value.trim();
   });
   $("#next-question").addEventListener("click", submitOrAdvance);
+  $("#ai-grade-button").addEventListener("click", gradeOpenResponse);
   $("#previous-question").addEventListener("click", () => {
     if (state.questionIndex > 0) { state.questionIndex -= 1; renderQuestion(); }
   });

@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
     <title>Polyglot Quiz</title>
-    <link rel="stylesheet" href="/assets/styles.css?v=20260716-2">
-    <script src="/assets/app.js?v=20260716-2" defer></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=20260716-4">
+    <script src="/assets/app.js?v=20260716-4" defer></script>
   </head>
   <body>
     <header class="app-header">
@@ -184,6 +184,19 @@
               <div class="answer-options" id="answer-options"></div>
               <div class="feedback" id="feedback" hidden>
                 <div class="feedback-title" id="feedback-title"></div>
+                <div class="feedback-reference" id="reference-answer-block" hidden>
+                  <span>参考答案</span>
+                  <p id="reference-answer"></p>
+                </div>
+                <div class="feedback-rubric" id="rubric-block" hidden>
+                  <span>评分要点</span>
+                  <ul id="answer-rubric"></ul>
+                </div>
+                <div class="ai-grade-actions" id="ai-grade-actions" hidden>
+                  <button class="button secondary compact" id="ai-grade-button" type="button">AI 评分</button>
+                  <small>按需调用模型，不影响客观题得分</small>
+                </div>
+                <div class="ai-grade-result" id="ai-grade-result" hidden></div>
                 <p id="answer-explanation"></p>
                 <blockquote id="evidence-quote"></blockquote>
               </div>

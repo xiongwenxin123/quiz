@@ -32,9 +32,15 @@ class FrontendAssetTests(unittest.TestCase):
         self.assertIn('styles.css?v=', html)
         self.assertIn('app.js?v=', html)
         self.assertTrue(all(f'id: "{question_type}"' in script for question_type in (
-            "main_idea", "detail", "inference", "author_purpose", "vocabulary_context",
-            "cloze", "grammar", "true_false", "short_answer",
+            "true_false_not_given", "information_matching", "paragraph_main_idea",
+            "author_attitude", "sentence_translation", "article_summary",
+            "argument_writing", "critical_response", "solution_proposal",
         )))
+        self.assertIn('evaluation_mode === "self_review"', script)
+        self.assertIn('评分要点', html)
+        self.assertIn('fetch("/v1/grade"', script)
+        self.assertIn('id="ai-grade-button"', html)
+        self.assertIn('按需调用模型', html)
 
 
 if __name__ == "__main__":

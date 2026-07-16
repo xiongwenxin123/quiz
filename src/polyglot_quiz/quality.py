@@ -6,7 +6,16 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from enum import StrEnum
 
-from .models import ArticleDocument, CandidateQuestions, Question, QuestionType, QuizRequest
+from .models import (
+    OPEN_RESPONSE_TYPES,
+    SELF_REVIEW_TYPES,
+    ArticleDocument,
+    CandidateQuestions,
+    EvaluationMode,
+    Question,
+    QuestionType,
+    QuizRequest,
+)
 
 
 class Severity(StrEnum):
@@ -58,6 +67,61 @@ def _overlap_score(left: str, right: str) -> float:
     return len(left_chars & right_chars) / max(1, min(len(left_chars), len(right_chars)))
 
 
+def _ground_cloze_evidence(
+    question: Question,
+    sentence_map: dict[str, str],
+    *,
+    minimum_overlap: float,
+) -> dict[str, object] | None:
+    if question.type != QuestionType.CLOZE or not question.correct_option_id:
+        return None
+    correct_option = next(
+        (option.text for option in question.options if option.id == question.correct_option_id),
+        None,
+    )
+    if not correct_option:
+        return None
+
+    prompt_tail = re.split(r"[:：]", question.prompt)[-1]
+    reconstructed = re.sub(
+        r"_{2,}|\.{3,}|…+|\[\s*(?:blank|mask)\s*\]|<\s*blank\s*>|\(\s*blank\s*\)",
+        correct_option,
+        prompt_tail,
+        flags=re.IGNORECASE,
+    )
+    if reconstructed == prompt_tail:
+        reconstructed = f"{prompt_tail} {correct_option}"
+
+    normalized_answer = _normalized(correct_option)
+    ranked = sorted(
+        (
+            (
+                max(
+                    _overlap_score(reconstructed, sentence_text),
+                    _overlap_score(question.prompt, sentence_text),
+                ),
+                sentence_id,
+                sentence_text,
+            )
+            for sentence_id, sentence_text in sentence_map.items()
+            if normalized_answer in _normalized(sentence_text)
+        ),
+        reverse=True,
+    )
+    if not ranked or ranked[0][0] < minimum_overlap:
+        return None
+
+    score, sentence_id, sentence_text = ranked[0]
+    question.evidence_sentence_ids = [sentence_id]
+    question.evidence_quote = sentence_text
+    return {
+        "question_id": question.id,
+        "sentence_id": sentence_id,
+        "overlap": round(score, 3),
+        "strategy": "cloze_reconstruction",
+    }
+
+
 def ground_evidence_quotes(
     candidate: CandidateQuestions,
     document: ArticleDocument,
@@ -74,6 +138,14 @@ def ground_evidence_quotes(
             if sentence_id in sentence_map
         ]
         if any(quote in _normalized(text) for _, text in referenced):
+            continue
+        cloze_repair = _ground_cloze_evidence(
+            question,
+            sentence_map,
+            minimum_overlap=minimum_overlap,
+        )
+        if cloze_repair:
+            grounded.append(cloze_repair)
             continue
         ranked = sorted(
             (
@@ -225,13 +297,51 @@ class QualityValidator:
                     )
                 )
 
-        if question.type == QuestionType.SHORT_ANSWER:
+        if question.type in OPEN_RESPONSE_TYPES:
             if question.options:
                 issues.append(
-                    QualityIssue("short_answer_options", "Short answer must not have options", Severity.ERROR, question.id)
+                    QualityIssue("open_response_options", "Open-response question must not have options", Severity.ERROR, question.id)
+                )
+            expected_mode = (
+                EvaluationMode.SELF_REVIEW
+                if question.type in SELF_REVIEW_TYPES
+                else EvaluationMode.AUTO
+            )
+            if question.evaluation_mode != expected_mode:
+                issues.append(
+                    QualityIssue(
+                        "evaluation_mode",
+                        f"Expected {expected_mode.value} evaluation mode",
+                        Severity.ERROR,
+                        question.id,
+                    )
+                )
+            if expected_mode == EvaluationMode.SELF_REVIEW and not question.rubric:
+                issues.append(
+                    QualityIssue(
+                        "missing_rubric",
+                        "Self-review question needs rubric criteria",
+                        Severity.ERROR,
+                        question.id,
+                    )
                 )
         else:
-            expected_options = 2 if question.type == QuestionType.TRUE_FALSE else 4
+            if question.evaluation_mode != EvaluationMode.AUTO:
+                issues.append(
+                    QualityIssue(
+                        "evaluation_mode",
+                        "Closed question must use auto evaluation",
+                        Severity.ERROR,
+                        question.id,
+                    )
+                )
+            expected_options = (
+                2
+                if question.type == QuestionType.TRUE_FALSE
+                else 3
+                if question.type == QuestionType.TRUE_FALSE_NOT_GIVEN
+                else 4
+            )
             if len(question.options) != expected_options:
                 issues.append(
                     QualityIssue(

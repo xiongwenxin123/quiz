@@ -76,6 +76,83 @@ class QualityTests(unittest.TestCase):
         report = QualityValidator().validate(value, self.document, self.request)
         self.assertIn("prompt_evidence_mismatch", {issue.code for issue in report.errors})
 
+    def test_cloze_blank_reconstructs_quote_and_corrects_evidence_id(self) -> None:
+        value = CandidateQuestions.model_validate(
+            {
+                "questions": [
+                    {
+                        "id": "q1",
+                        "type": "cloze",
+                        "prompt": "Complete the sentence: Young trees also require ____ and regular care from local workers.",
+                        "options": [
+                            {"id": "A", "text": "water"},
+                            {"id": "B", "text": "traffic"},
+                            {"id": "C", "text": "noise"},
+                            {"id": "D", "text": "concrete"},
+                        ],
+                        "correct_option_id": "A",
+                        "explanation": "The source sentence uses water in this context.",
+                        "evidence_sentence_ids": ["s1"],
+                        "evidence_quote": "Young trees also require ____ and regular care from local workers.",
+                        "skill": "contextual cloze",
+                        "estimated_level": "B1",
+                    }
+                ]
+            }
+        )
+        request = QuizRequest(
+            source_text=TEXT,
+            target_language="en",
+            level="B1",
+            question_counts=[{"type": "cloze", "count": 1}],
+        )
+        repairs = ground_evidence_quotes(value, self.document)
+        self.assertEqual(repairs[0]["strategy"], "cloze_reconstruction")
+        self.assertEqual(value.questions[0].evidence_sentence_ids, ["s2"])
+        self.assertEqual(value.questions[0].evidence_quote, self.document.sentences[1].text)
+        self.assertTrue(QualityValidator().validate(value, self.document, request).passed)
+
+    def test_true_false_not_given_requires_three_options(self) -> None:
+        value = candidate()
+        value.questions[0].type = "true_false_not_given"
+        value.questions[0].options = value.questions[0].options[:3]
+        request = QuizRequest(
+            source_text=TEXT,
+            target_language="en",
+            level="B1",
+            question_counts=[{"type": "true_false_not_given", "count": 1}],
+        )
+        self.assertTrue(QualityValidator().validate(value, self.document, request).passed)
+
+    def test_open_writing_uses_self_review_rubric(self) -> None:
+        value = CandidateQuestions.model_validate(
+            {
+                "questions": [
+                    {
+                        "id": "q1",
+                        "type": "article_summary",
+                        "prompt": "Summarize the article in no more than 40 words.",
+                        "accepted_answers": ["Cities plant trees for shade, while young trees need water and regular care."],
+                        "evaluation_mode": "self_review",
+                        "rubric": ["Includes the heat benefit", "Includes the need for ongoing care"],
+                        "word_limit": 40,
+                        "explanation": "A good summary includes both the benefit and the maintenance need.",
+                        "evidence_sentence_ids": ["s1", "s2"],
+                        "evidence_quote": "Many cities plant trees because shade can reduce summer heat.",
+                        "skill": "summary writing",
+                        "estimated_level": "B1",
+                    }
+                ]
+            }
+        )
+        request = QuizRequest(
+            source_text=TEXT,
+            target_language="en",
+            level="B1",
+            question_counts=[{"type": "article_summary", "count": 1}],
+        )
+        self.assertTrue(QualityValidator().validate(value, self.document, request).passed)
+
 
 if __name__ == "__main__":
     unittest.main()
