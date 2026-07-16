@@ -5,10 +5,14 @@
   "explanation_language": "zh-CN",
   "include_furigana": true,
   "question_counts": [
-    {"type": "detail", "count": 2},
+    {"type": "main_idea", "count": 1},
+    {"type": "detail", "count": 1},
     {"type": "inference", "count": 1},
+    {"type": "author_purpose", "count": 1},
     {"type": "vocabulary_context", "count": 1},
-    {"type": "grammar", "count": 1}
+    {"type": "cloze", "count": 1},
+    {"type": "grammar", "count": 1},
+    {"type": "true_false", "count": 1},
+    {"type": "short_answer", "count": 1}
   ]
 }
-

@@ -20,9 +20,21 @@ class FrontendAssetTests(unittest.TestCase):
         self.assertIn('X-Quiz-LLM-API-Key', script)
         self.assertIn('X-Quiz-Allow-Insecure-HTTP', script)
         self.assertIn('X-Quiz-LLM-Compatibility', script)
+        self.assertIn('X-Quiz-Request-ID', script)
+        self.assertIn('/v1/progress/', script)
         self.assertIn('id="model-compatibility-mode"', html)
         self.assertIn('providerSettings', script)
         self.assertIn('/v1/provider-settings', script)
+        self.assertIn('paragraph_teaching', script)
+        self.assertIn('中文翻译', script)
+        self.assertIn('原文语境', script)
+        self.assertIn('补充例句', script)
+        self.assertIn('styles.css?v=', html)
+        self.assertIn('app.js?v=', html)
+        self.assertTrue(all(f'id: "{question_type}"' in script for question_type in (
+            "main_idea", "detail", "inference", "author_purpose", "vocabulary_context",
+            "cloze", "grammar", "true_false", "short_answer",
+        )))
 
 
 if __name__ == "__main__":

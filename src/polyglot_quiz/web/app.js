@@ -5,20 +5,20 @@ const languageDefaults = {
 };
 
 const questionTypes = [
-  { id: "main_idea", label: "主旨理解", hint: "全文核心观点", count: 0 },
-  { id: "detail", label: "细节定位", hint: "事实与信息关系", count: 2 },
+  { id: "main_idea", label: "主旨理解", hint: "全文核心观点", count: 1 },
+  { id: "detail", label: "细节定位", hint: "事实与信息关系", count: 1 },
   { id: "inference", label: "推断理解", hint: "文本强支持结论", count: 1 },
-  { id: "author_purpose", label: "作者目的", hint: "结构、态度与作用", count: 0 },
-  { id: "vocabulary_context", label: "语境词汇", hint: "当前语境中的意义", count: 2 },
-  { id: "cloze", label: "语境完形", hint: "搭配与篇章衔接", count: 0 },
+  { id: "author_purpose", label: "作者目的", hint: "结构、态度与作用", count: 1 },
+  { id: "vocabulary_context", label: "语境词汇", hint: "当前语境中的意义", count: 1 },
+  { id: "cloze", label: "语境完形", hint: "搭配与篇章衔接", count: 1 },
   { id: "grammar", label: "语法应用", hint: "形式、意义与功能", count: 1 },
-  { id: "true_false", label: "判断题", hint: "快速验证陈述", count: 0 },
-  { id: "short_answer", label: "简答题", hint: "主动提取与表达", count: 0 },
+  { id: "true_false", label: "判断题", hint: "快速验证陈述", count: 1 },
+  { id: "short_answer", label: "简答题", hint: "主动提取与表达", count: 1 },
 ];
 
 const typeLabels = Object.fromEntries(questionTypes.map((item) => [item.id, item.label]));
 const sampleArticles = {
-  en: "Many cities are planting trees to reduce summer heat. Trees shade streets and release water vapor, which can lower nearby temperatures. However, urban trees need careful planning because roots may damage sidewalks and young trees require regular watering. Researchers recommend choosing native species and planting them where residents receive the greatest benefit. A successful program therefore combines environmental goals with long-term maintenance.",
+  en: "Many cities are planting trees to reduce summer heat. Trees shade streets and release water vapor, which can lower nearby temperatures.\n\nHowever, urban trees need careful planning because roots may damage sidewalks and young trees require regular watering. Researchers recommend choosing native species and planting them where residents receive the greatest benefit.\n\nA successful program therefore combines environmental goals with long-term maintenance.",
   ja: "近年、食品ロスを減らすために、売れ残った料理を安く提供する店が増えています。利用者はアプリで商品を予約し、閉店前に店で受け取ります。店にとっては廃棄費用を減らせるという利点があります。一方で、毎日同じ商品が残るとは限らないため、利用者は内容を自由に選べないこともあります。この仕組みを続けるには、便利さだけでなく、店と利用者の理解も必要です。",
   es: "Cada vez más barrios organizan mercados de intercambio para dar una segunda vida a los objetos. Los participantes llevan libros, ropa o utensilios que ya no usan y los cambian por otros productos. La iniciativa no solo reduce los residuos, sino que también permite conocer a los vecinos. Para que el evento funcione, los organizadores piden que todos los objetos estén limpios y en buen estado. Así, el intercambio se convierte en una actividad útil y agradable para toda la comunidad.",
 };
@@ -32,7 +32,8 @@ const state = {
   answers: {},
   submitted: {},
   scores: {},
-  loadingTimer: null,
+  progressTimer: null,
+  activeRequestId: null,
   runtimeMode: "production",
   providerSettings: null,
   defaultProvider: null,
@@ -125,21 +126,44 @@ function validateRequest(request) {
   return "";
 }
 
-function setLoading(loading) {
+function setLoading(loading, message = "正在提交生成请求...") {
   $("#generate-button").disabled = loading;
   $("#generate-button").classList.toggle("loading", loading);
   $("#empty-state").hidden = loading || Boolean(state.package);
   $("#loading-state").hidden = !loading;
   $("#quiz-view").hidden = loading || !state.package;
-  clearInterval(state.loadingTimer);
-  if (loading) {
-    const messages = ["正在分析文章结构...", "正在选择词汇与语法目标...", "正在生成并校验题目...", "正在整理原文证据..."];
-    let index = 0;
-    $("#loading-message").textContent = messages[0];
-    state.loadingTimer = setInterval(() => {
-      index = (index + 1) % messages.length;
-      $("#loading-message").textContent = messages[index];
-    }, 2200);
+  if (loading) $("#loading-message").textContent = message;
+}
+
+function createRequestId() {
+  if (globalThis.crypto?.randomUUID) return crypto.randomUUID().replaceAll("-", "");
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`.padEnd(12, "0");
+}
+
+function stopProgressPolling(requestId) {
+  if (requestId && state.activeRequestId !== requestId) return;
+  clearTimeout(state.progressTimer);
+  state.progressTimer = null;
+  state.activeRequestId = null;
+}
+
+async function pollProgress(requestId) {
+  if (state.activeRequestId !== requestId) return;
+  try {
+    const response = await fetch(`/v1/progress/${encodeURIComponent(requestId)}`, {
+      cache: "no-store",
+    });
+    if (response.ok) {
+      const progress = await response.json();
+      if (state.activeRequestId !== requestId) return;
+      $("#loading-message").textContent = progress.message;
+      if (progress.done) return;
+    }
+  } catch {
+    // The generation request remains authoritative; retry transient progress failures.
+  }
+  if (state.activeRequestId === requestId) {
+    state.progressTimer = setTimeout(() => pollProgress(requestId), 600);
   }
 }
 
@@ -160,9 +184,15 @@ async function generateQuiz(event) {
   if (error) return;
 
   state.package = null;
+  const requestId = createRequestId();
+  state.activeRequestId = requestId;
   setLoading(true);
+  state.progressTimer = setTimeout(() => pollProgress(requestId), 150);
   try {
-    const headers = { "Content-Type": "application/json" };
+    const headers = {
+      "Content-Type": "application/json",
+      "X-Quiz-Request-ID": requestId,
+    };
     if (state.providerSettings) {
       headers["X-Quiz-LLM-API-Key"] = state.providerSettings.apiKey;
       headers["X-Quiz-LLM-Model"] = state.providerSettings.model;
@@ -188,6 +218,7 @@ async function generateQuiz(event) {
     $("#form-error").hidden = false;
     showToast("练习生成失败");
   } finally {
+    stopProgressPolling(requestId);
     setLoading(false);
   }
 }
@@ -200,10 +231,46 @@ function renderPackage() {
   $("#article-summary").textContent = data.analysis.summary;
   $("#quality-score").textContent = `${Math.round(data.metadata.quality_score * 100)}%`;
   $("#topic-list").innerHTML = data.analysis.topics.map((topic) => `<span>${escapeHtml(topic)}</span>`).join("");
-  $("#article-copy").innerHTML = data.article.sentences.map((sentence) => `<p class="article-sentence"><span class="sentence-id">${escapeHtml(sentence.id)}</span>${escapeHtml(sentence.text)}</p>`).join("");
+  renderArticle(data.article, data.analysis.paragraph_teaching || []);
   renderVocabulary(data.analysis.vocabulary_targets || []);
   selectResultTab("practice");
   renderQuestion();
+}
+
+function renderArticle(article, teachingItems) {
+  const teachingByParagraph = Object.fromEntries(teachingItems.map((item) => [item.paragraph_id, item]));
+  const sentenceById = Object.fromEntries(article.sentences.map((sentence) => [sentence.id, sentence]));
+  const paragraphs = article.paragraphs?.length
+    ? article.paragraphs
+    : article.sentences.map((sentence, index) => ({ id: `p${index + 1}`, text: sentence.text, sentence_ids: [sentence.id] }));
+  $("#article-copy").innerHTML = paragraphs.map((paragraph, index) => {
+    const teaching = teachingByParagraph[paragraph.id] || {};
+    const original = paragraph.sentence_ids.map((id) => sentenceById[id]).filter(Boolean);
+    const vocabularyNotes = teaching.vocabulary_notes_zh || [];
+    const grammarNotes = teaching.grammar_notes_zh || [];
+    return `
+      <section class="teaching-paragraph">
+        <header class="paragraph-heading"><span>${escapeHtml(paragraph.id)}</span><strong>第 ${index + 1} 段</strong></header>
+        <div class="paragraph-original">
+          ${original.map((sentence) => `<p class="article-sentence"><span class="sentence-id">${escapeHtml(sentence.id)}</span>${escapeHtml(sentence.text)}</p>`).join("")}
+        </div>
+        <div class="paragraph-translation">
+          <span class="teaching-label">中文翻译</span>
+          <p>${escapeHtml(teaching.translation_zh || "暂无翻译")}</p>
+        </div>
+        <div class="paragraph-teaching-grid">
+          <div><span class="teaching-label">词汇</span>${renderTeachingNotes(vocabularyNotes)}</div>
+          <div><span class="teaching-label">语法与文法</span>${renderTeachingNotes(grammarNotes)}</div>
+          <div><span class="teaching-label">篇章作用</span><p>${escapeHtml(teaching.discourse_note_zh || "暂无解析")}</p></div>
+          <div><span class="teaching-label">作者意图</span><p>${escapeHtml(teaching.author_intent_zh || "暂无解析")}</p></div>
+        </div>
+      </section>`;
+  }).join("");
+}
+
+function renderTeachingNotes(items) {
+  if (!items.length) return '<p class="muted-note">本段无独立讲解</p>';
+  return `<ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
 }
 
 function renderVocabulary(items) {
@@ -213,9 +280,15 @@ function renderVocabulary(items) {
   }
   $("#vocabulary-list").innerHTML = items.map((item) => `
     <article class="vocabulary-item">
-      <div class="vocabulary-word"><strong>${escapeHtml(item.surface)}</strong><small>${escapeHtml(item.reading || item.lemma || item.part_of_speech || "")}</small></div>
-      <div class="vocabulary-meaning">${escapeHtml(item.meaning_in_context)}</div>
-      <span class="level-badge">${escapeHtml(item.estimated_level)}</span>
+      <header class="vocabulary-header">
+        <div class="vocabulary-word"><strong>${escapeHtml(item.surface)}</strong><small>${escapeHtml([item.reading, item.lemma, item.part_of_speech].filter(Boolean).join(" · "))}</small></div>
+        <span class="level-badge">${escapeHtml(item.estimated_level)}</span>
+      </header>
+      <div class="vocabulary-section vocabulary-meaning"><span class="teaching-label">中文释义</span><p>${escapeHtml(item.meaning_in_context)}</p></div>
+      <div class="vocabulary-section vocabulary-context"><span class="teaching-label">原文语境</span><blockquote>${escapeHtml(item.source_excerpt || "")}</blockquote></div>
+      <div class="vocabulary-section"><span class="teaching-label">补充例句</span>
+        <ol class="example-list">${(item.examples || []).map((example) => `<li><p>${escapeHtml(example.text)}</p><small>${escapeHtml(example.translation_zh)}</small></li>`).join("")}</ol>
+      </div>
     </article>`).join("");
 }
 

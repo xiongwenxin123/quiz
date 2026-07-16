@@ -36,12 +36,7 @@ class QuizRequest(BaseModel):
     level: str
     explanation_language: str = Field(default="zh-CN", min_length=2, max_length=16)
     question_counts: list[QuestionCount] = Field(
-        default_factory=lambda: [
-            QuestionCount(type=QuestionType.DETAIL, count=2),
-            QuestionCount(type=QuestionType.INFERENCE, count=1),
-            QuestionCount(type=QuestionType.VOCABULARY_CONTEXT, count=2),
-            QuestionCount(type=QuestionType.GRAMMAR, count=1),
-        ]
+        default_factory=lambda: [QuestionCount(type=item, count=1) for item in QuestionType]
     )
     learner_locale: str | None = Field(default=None, max_length=16)
     spanish_variant: Literal["neutral", "es-ES", "es-MX", "es-AR"] = "neutral"
@@ -71,14 +66,26 @@ class Sentence(BaseModel):
     text: str = Field(min_length=1)
 
 
+class ArticleParagraph(BaseModel):
+    id: str = Field(pattern=r"^p\d+$")
+    text: str = Field(min_length=1)
+    sentence_ids: list[str] = Field(min_length=1)
+
+
 class ArticleDocument(BaseModel):
     title: str | None = None
     source_url: str | None = None
     language: TargetLanguage
     text: str = Field(min_length=80)
     sentences: list[Sentence] = Field(min_length=1)
+    paragraphs: list[ArticleParagraph] = Field(min_length=1)
     word_or_token_count: int = Field(ge=1)
     extraction_method: str
+
+
+class VocabularyExample(BaseModel):
+    text: str = Field(min_length=2, max_length=500)
+    translation_zh: str = Field(min_length=1, max_length=500)
 
 
 class VocabularyTarget(BaseModel):
@@ -89,6 +96,21 @@ class VocabularyTarget(BaseModel):
     meaning_in_context: str
     evidence_sentence_id: str = Field(pattern=r"^s\d+$")
     estimated_level: str
+    source_excerpt: str = Field(min_length=1, max_length=1500)
+    examples: list[VocabularyExample] = Field(min_length=2, max_length=3)
+
+
+class ParagraphTeaching(BaseModel):
+    paragraph_id: str = Field(pattern=r"^p\d+$")
+    translation_zh: str = Field(min_length=1, max_length=3000)
+    vocabulary_notes_zh: list[str] = Field(default_factory=list, max_length=6)
+    grammar_notes_zh: list[str] = Field(default_factory=list, max_length=6)
+    discourse_note_zh: str = Field(min_length=1, max_length=1000)
+    author_intent_zh: str = Field(min_length=1, max_length=1000)
+
+
+class ParagraphTeachingBatch(BaseModel):
+    paragraph_teaching: list[ParagraphTeaching] = Field(min_length=1)
 
 
 class ArticleAnalysis(BaseModel):
@@ -100,6 +122,7 @@ class ArticleAnalysis(BaseModel):
     vocabulary_targets: list[VocabularyTarget] = Field(default_factory=list)
     grammar_targets: list[str] = Field(default_factory=list)
     difficulty_reasons: list[str] = Field(default_factory=list)
+    paragraph_teaching: list[ParagraphTeaching] = Field(default_factory=list)
 
 
 class AnswerOption(BaseModel):

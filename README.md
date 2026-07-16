@@ -1,5 +1,12 @@
 # Polyglot Quiz
 
+Grounded English, Japanese, and Spanish reading-quiz generation with local
+graded vocabulary and grammar candidate selection.
+
+The bundled learning profiles reduce free-form LLM target selection. See
+[`docs/LEARNING_PROFILES.zh-CN.md`](docs/LEARNING_PROFILES.zh-CN.md) for data
+sources, licenses, regeneration, and accuracy limitations.
+
 面向英文、日语和西班牙语文章的可追溯出题服务。输入正文或公开 URL，系统先分析文章，再按语言专属规则生成题目，并用确定性规则检查题数、题型、答案结构和原文证据；失败时会要求模型完整返修。
 
 这不是把一套英文题翻译成三种语言。共享管线负责抽取、结构化输出和质量控制，英文、日语、西班牙语配置分别负责难度体系、语法点、干扰项和书写规则。
@@ -64,7 +71,7 @@ uvicorn examples.demo_server:app --host 127.0.0.1 --port 8000
 
 本机或内网模型使用 `http://` 时，只需在页面明确勾选“允许明文 HTTP”。该模式仅适合绑定 `127.0.0.1` 的本地服务，不应直接暴露到公网。
 
-真实 BBC 验证结果保存在 `bbc-quiz-output.json`：Trafilatura 提取 49 句、约 1285 词，默认模型生成 6 道 B2 题，质量分 0.96。
+历史 BBC 验证结果保存在 `bbc-quiz-output.json`：Trafilatura 提取 49 句、约 1285 词。当前默认蓝图为 9 种题型各 1 题；该历史文件仍保留当时 6 题配置的结果，质量分为 0.96。
 
 测试：
 

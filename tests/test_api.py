@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 from unittest.mock import patch
 
@@ -47,8 +48,49 @@ class ApiTests(unittest.TestCase):
         response = self.client.post("/v1/quizzes", json=request)
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
-        self.assertEqual(len(body["questions"]), 6)
+        self.assertEqual(len(body["questions"]), 9)
+        self.assertEqual(
+            {question["type"] for question in body["questions"]},
+            {
+                "main_idea", "detail", "inference", "author_purpose",
+                "vocabulary_context", "cloze", "grammar", "true_false", "short_answer",
+            },
+        )
+        self.assertEqual(len(body["article"]["paragraphs"]), 3)
+        self.assertEqual(len(body["analysis"]["paragraph_teaching"]), 3)
+        self.assertEqual(len(body["analysis"]["vocabulary_targets"][0]["examples"]), 2)
         self.assertEqual(body["metadata"]["model"], "demo-fixture")
+        four_choice_positions = Counter(
+            question["correct_option_id"]
+            for question in body["questions"]
+            if len(question["options"]) == 4
+        )
+        self.assertEqual(set(four_choice_positions), {"A", "B", "C", "D"})
+        self.assertLessEqual(
+            max(four_choice_positions.values()) - min(four_choice_positions.values()),
+            1,
+        )
+
+    def test_generation_progress_uses_client_request_id(self) -> None:
+        request_path = Path(__file__).parents[1] / "examples" / "english-request.json"
+        request = json.loads(request_path.read_text())
+        request.pop("question_counts")
+        request_id = "frontendtest1234"
+        response = self.client.post(
+            "/v1/quizzes",
+            json=request,
+            headers={"X-Quiz-Request-ID": request_id},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        progress = self.client.get(f"/v1/progress/{request_id}")
+        self.assertEqual(progress.status_code, 200, progress.text)
+        self.assertEqual(progress.json()["stage"], "complete")
+        self.assertEqual(progress.json()["percent"], 100)
+        self.assertTrue(progress.json()["done"])
+        self.assertFalse(progress.json()["failed"])
+
+    def test_invalid_progress_request_id_is_rejected(self) -> None:
+        self.assertEqual(self.client.get("/v1/progress/short").status_code, 404)
 
     def test_demo_rejects_custom_articles_with_clear_message(self) -> None:
         response = self.client.post(
@@ -194,10 +236,12 @@ class ApiTests(unittest.TestCase):
             "request_received",
             "pipeline_started",
             "extraction_completed",
+            "learning_targets_selected",
             "analysis_started",
             "analysis_completed",
             "generation_started",
             "quality_checked",
+            "answer_options_shuffled",
             "pipeline_completed",
             "request_completed",
         ):

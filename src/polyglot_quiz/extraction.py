@@ -4,12 +4,13 @@ import ipaddress
 import re
 import socket
 import time
+import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from .models import ArticleDocument, Sentence, TargetLanguage
+from .models import ArticleDocument, ArticleParagraph, Sentence, TargetLanguage
 from .observability import log_event
 
 
@@ -98,6 +99,27 @@ def normalize_text(text: str) -> str:
     return "\n\n".join(paragraphs)
 
 
+def _paragraphs_from_trafilatura_xml(xml_text: str) -> tuple[str, str | None]:
+    root = ET.fromstring(xml_text)
+    main = root.find("main")
+    if main is None:
+        raise ValueError("Trafilatura XML has no main element")
+
+    paragraphs = [
+        re.sub(r"\s+", " ", "".join(element.itertext())).strip()
+        for element in main.findall(".//p")
+    ]
+    paragraphs = [paragraph for paragraph in paragraphs if paragraph]
+    if not paragraphs:
+        raise ValueError("Trafilatura XML has no article paragraphs")
+
+    heading = main.find("head")
+    title = None
+    if heading is not None:
+        title = re.sub(r"\s+", " ", "".join(heading.itertext())).strip() or None
+    return "\n\n".join(paragraphs), title
+
+
 def split_sentences(text: str, language: TargetLanguage) -> list[Sentence]:
     if language == TargetLanguage.JAPANESE:
         chunks = re.split(r"(?<=[。！？])\s*|\n+", text)
@@ -124,7 +146,23 @@ def document_from_text(
     normalized = normalize_text(text)
     if len(normalized) < 80:
         raise ExtractionError("The extracted article is too short (minimum 80 characters)")
-    sentences = split_sentences(normalized, language)
+    sentences: list[Sentence] = []
+    paragraphs: list[ArticleParagraph] = []
+    for paragraph_index, paragraph_text in enumerate(normalized.split("\n\n"), 1):
+        local_sentences = split_sentences(paragraph_text, language)
+        paragraph_sentence_ids: list[str] = []
+        for local_sentence in local_sentences:
+            sentence = Sentence(id=f"s{len(sentences) + 1}", text=local_sentence.text)
+            sentences.append(sentence)
+            paragraph_sentence_ids.append(sentence.id)
+        if paragraph_sentence_ids:
+            paragraphs.append(
+                ArticleParagraph(
+                    id=f"p{paragraph_index}",
+                    text=paragraph_text,
+                    sentence_ids=paragraph_sentence_ids,
+                )
+            )
     if not sentences:
         raise ExtractionError("No sentences could be extracted")
     return ArticleDocument(
@@ -133,6 +171,7 @@ def document_from_text(
         language=language,
         text=normalized,
         sentences=sentences,
+        paragraphs=paragraphs,
         word_or_token_count=_token_count(normalized, language),
         extraction_method=extraction_method,
     )
@@ -215,16 +254,17 @@ def extract_url(
     try:
         import trafilatura  # type: ignore[import-not-found]
 
-        text = trafilatura.extract(
+        extracted_xml = trafilatura.extract(
             html,
             include_comments=False,
             include_tables=False,
             favor_precision=True,
-            output_format="txt",
+            output_format="xml",
         )
-        if text:
-            method = "trafilatura"
-    except ImportError:
+        if extracted_xml:
+            text, title = _paragraphs_from_trafilatura_xml(extracted_xml)
+            method = "trafilatura_xml"
+    except (ImportError, ET.ParseError, ValueError):
         pass
     if not text:
         parser = _ReadableTextParser()

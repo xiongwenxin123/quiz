@@ -30,7 +30,7 @@ polyglot-quiz = "polyglot_quiz.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-polyglot_quiz = ["web/*"]
+polyglot_quiz = ["web/*", "data/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

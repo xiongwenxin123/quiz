@@ -11,6 +11,7 @@ from .extraction import ExtractionError, _validate_public_url
 from .models import QuizPackage, QuizRequest
 from .observability import log_event, reset_request_id, set_request_id
 from .pipeline import QuizPipeline, QuizQualityError
+from .progress import ProgressStore
 from .profiles import PROFILES
 from .providers import (
     LLMProvider,
@@ -40,6 +41,7 @@ def create_app(provider: LLMProvider | None = None) -> Any:
         description="Grounded quiz generation for English, Japanese, and Spanish articles.",
     )
     web_dir = Path(__file__).parent / "web"
+    progress_store = ProgressStore()
 
     @app.get("/", include_in_schema=False)
     def frontend() -> FileResponse:
@@ -83,6 +85,15 @@ def create_app(provider: LLMProvider | None = None) -> Any:
     def get_provider_settings() -> dict[str, object]:
         return provider_settings_summary()
 
+    @app.get("/v1/progress/{request_id}")
+    def generation_progress(request_id: str) -> dict[str, object]:
+        if not _valid_request_id(request_id):
+            raise HTTPException(status_code=404, detail="Progress request not found")
+        snapshot = progress_store.get(request_id)
+        if snapshot is None:
+            raise HTTPException(status_code=404, detail="Progress request not found")
+        return snapshot.as_dict()
+
     @app.put("/v1/provider-settings")
     def put_provider_settings(settings: StoredProviderSettings) -> dict[str, object]:
         try:
@@ -123,8 +134,12 @@ def create_app(provider: LLMProvider | None = None) -> Any:
         compatibility_mode: Literal["auto", "openai", "qwen_stream"] = Header(
             default="auto", alias="X-Quiz-LLM-Compatibility"
         ),
+        client_request_id: str | None = Header(default=None, alias="X-Quiz-Request-ID"),
     ) -> QuizPackage:
-        request_id = uuid4().hex[:12]
+        if client_request_id is not None and not _valid_request_id(client_request_id):
+            raise HTTPException(status_code=422, detail="Invalid request ID")
+        request_id = client_request_id or uuid4().hex[:12]
+        progress_store.start(request_id)
         request_token = set_request_id(request_id)
         request_started = perf_counter()
         active_provider: LLMProvider | None = None
@@ -154,7 +169,21 @@ def create_app(provider: LLMProvider | None = None) -> Any:
             request_validator = getattr(active_provider, "validate_request", None)
             if callable(request_validator):
                 request_validator(request)
-            result = QuizPipeline(active_provider).generate(request)
+            progress_store.update(
+                request_id,
+                stage="provider_ready",
+                message="模型服务已就绪，正在处理文章...",
+                percent=5,
+            )
+            result = QuizPipeline(
+                active_provider,
+                progress=lambda stage, message, percent: progress_store.update(
+                    request_id,
+                    stage=stage,
+                    message=message,
+                    percent=percent,
+                ),
+            ).generate(request)
             log_event(
                 "request_completed",
                 status_code=200,
@@ -162,6 +191,7 @@ def create_app(provider: LLMProvider | None = None) -> Any:
                 quality_score=result.metadata.quality_score,
                 elapsed_ms=round((perf_counter() - request_started) * 1000, 1),
             )
+            progress_store.complete(request_id)
             return result
         except QuizQualityError as exc:
             log_event(
@@ -220,6 +250,9 @@ def create_app(provider: LLMProvider | None = None) -> Any:
             )
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
+            snapshot = progress_store.get(request_id)
+            if snapshot is not None and not snapshot.done:
+                progress_store.fail(request_id)
             reset_request_id(request_token)
 
     return app
@@ -262,3 +295,10 @@ def _provider_from_request_headers(
 
 
 app = create_app()
+
+
+def _valid_request_id(value: str) -> bool:
+    return 12 <= len(value) <= 64 and all(
+        character.isascii() and (character.isalnum() or character in "_-")
+        for character in value
+    )

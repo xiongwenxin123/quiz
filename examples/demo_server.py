@@ -14,12 +14,22 @@ T = TypeVar("T", bound=BaseModel)
 
 DEMO_SOURCE = (
     "Many cities are planting trees to reduce summer heat. Trees shade streets and release water vapor, "
-    "which can lower nearby temperatures. However, urban trees need careful planning because roots may "
+    "which can lower nearby temperatures.\n\nHowever, urban trees need careful planning because roots may "
     "damage sidewalks and young trees require regular watering. Researchers recommend choosing native "
-    "species and planting them where residents receive the greatest benefit. A successful program "
+    "species and planting them where residents receive the greatest benefit.\n\nA successful program "
     "therefore combines environmental goals with long-term maintenance."
 )
-DEMO_COUNTS = {"detail": 2, "inference": 1, "vocabulary_context": 2, "grammar": 1}
+DEMO_COUNTS = {
+    "main_idea": 1,
+    "detail": 1,
+    "inference": 1,
+    "author_purpose": 1,
+    "vocabulary_context": 1,
+    "cloze": 1,
+    "grammar": 1,
+    "true_false": 1,
+    "short_answer": 1,
+}
 
 
 ANALYSIS = ArticleAnalysis.model_validate(
@@ -37,6 +47,11 @@ ANALYSIS = ArticleAnalysis.model_validate(
                 "meaning_in_context": "当地自然生长、适应本地环境的物种",
                 "evidence_sentence_id": "s4",
                 "estimated_level": "B1",
+                "source_excerpt": "Researchers recommend choosing native species and planting them where residents receive the greatest benefit.",
+                "examples": [
+                    {"text": "Native species usually adapt well to local conditions.", "translation_zh": "本地物种通常能很好地适应当地环境。"},
+                    {"text": "The park protects several native species.", "translation_zh": "这座公园保护了几种本地物种。"},
+                ],
             },
             {
                 "surface": "maintenance",
@@ -45,10 +60,41 @@ ANALYSIS = ArticleAnalysis.model_validate(
                 "meaning_in_context": "为使树木长期健康而进行的维护工作",
                 "evidence_sentence_id": "s5",
                 "estimated_level": "B1",
+                "source_excerpt": "A successful program therefore combines environmental goals with long-term maintenance.",
+                "examples": [
+                    {"text": "Regular maintenance keeps the equipment safe.", "translation_zh": "定期维护能保证设备安全。"},
+                    {"text": "The bridge requires expensive maintenance.", "translation_zh": "这座桥需要成本高昂的维护。"},
+                ],
             },
         ],
         "grammar_targets": ["relative clause with which"],
         "difficulty_reasons": ["The article uses cause-and-effect relations and planning vocabulary."],
+        "paragraph_teaching": [
+            {
+                "paragraph_id": "p1",
+                "translation_zh": "许多城市正在种树以缓解夏季高温。树木为街道遮阴并释放水汽，从而降低附近温度。",
+                "vocabulary_notes_zh": ["reduce summer heat：缓解夏季高温", "water vapor：水汽"],
+                "grammar_notes_zh": ["which 引导非限制性关系从句，补充说明树木带来的降温作用。"],
+                "discourse_note_zh": "开篇介绍城市种树的背景及其主要环境效益。",
+                "author_intent_zh": "用具体机制说明树木为何能够帮助城市降温。",
+            },
+            {
+                "paragraph_id": "p2",
+                "translation_zh": "然而，城市树木需要周密规划，因为树根可能破坏人行道，幼树也需要定期浇水。研究人员建议选择本地物种，并种植在居民受益最大的位置。",
+                "vocabulary_notes_zh": ["native species：本地原生物种", "regular watering：定期浇水"],
+                "grammar_notes_zh": ["because 引导原因状语从句。", "where 引导关系从句，说明种植的位置。"],
+                "discourse_note_zh": "由环境效益转向实施难点，并给出选种和选址建议。",
+                "author_intent_zh": "提醒读者城市植树需要处理基础设施、养护和公平受益等现实条件。",
+            },
+            {
+                "paragraph_id": "p3",
+                "translation_zh": "因此，一个成功的项目需要把环境目标与长期维护结合起来。",
+                "vocabulary_notes_zh": ["maintenance：持续维护、养护"],
+                "grammar_notes_zh": ["therefore 表示结论，承接前文的利弊分析。"],
+                "discourse_note_zh": "总结全文并提出城市植树项目成功的核心条件。",
+                "author_intent_zh": "强调环境目标与长期养护必须同时纳入项目设计。",
+            }
+        ],
     }
 )
 
@@ -57,6 +103,23 @@ QUESTIONS = CandidateQuestions.model_validate(
         "questions": [
             {
                 "id": "q1",
+                "type": "main_idea",
+                "prompt": "What is the main idea of the article?",
+                "options": [
+                    {"id": "A", "text": "Urban tree programs need both environmental planning and long-term care"},
+                    {"id": "B", "text": "Cities should remove sidewalks before planting any trees"},
+                    {"id": "C", "text": "Only imported trees can reduce summer temperatures"},
+                    {"id": "D", "text": "Residents should water every tree by themselves"},
+                ],
+                "correct_option_id": "A",
+                "explanation": "全文先介绍树木的降温作用，再说明规划和维护要求，核心是环境效益必须与长期管理结合。",
+                "evidence_sentence_ids": ["s1", "s3", "s5"],
+                "evidence_quote": "A successful program therefore combines environmental goals with long-term maintenance.",
+                "skill": "identifying main idea",
+                "estimated_level": "B1",
+            },
+            {
+                "id": "q2",
                 "type": "detail",
                 "prompt": "How can trees lower temperatures in cities?",
                 "options": [
@@ -69,23 +132,6 @@ QUESTIONS = CandidateQuestions.model_validate(
                 "explanation": "第二句直接说明树木通过遮阴和释放水汽降低附近温度。",
                 "evidence_sentence_ids": ["s2"],
                 "evidence_quote": "Trees shade streets and release water vapor, which can lower nearby temperatures.",
-                "skill": "locating detail",
-                "estimated_level": "B1",
-            },
-            {
-                "id": "q2",
-                "type": "detail",
-                "prompt": "What do researchers recommend when planning an urban tree program?",
-                "options": [
-                    {"id": "A", "text": "Planting every available species"},
-                    {"id": "B", "text": "Choosing native species and useful locations"},
-                    {"id": "C", "text": "Avoiding neighborhoods with residents"},
-                    {"id": "D", "text": "Replacing sidewalks before planting"},
-                ],
-                "correct_option_id": "B",
-                "explanation": "研究者建议选择本地物种，并种在居民最能受益的位置。",
-                "evidence_sentence_ids": ["s4"],
-                "evidence_quote": "Researchers recommend choosing native species and planting them where residents receive the greatest benefit.",
                 "skill": "locating detail",
                 "estimated_level": "B1",
             },
@@ -108,6 +154,23 @@ QUESTIONS = CandidateQuestions.model_validate(
             },
             {
                 "id": "q4",
+                "type": "author_purpose",
+                "prompt": "Why does the author mention damaged sidewalks and regular watering?",
+                "options": [
+                    {"id": "A", "text": "To show why urban trees require careful planning"},
+                    {"id": "B", "text": "To argue that cities should stop planting trees"},
+                    {"id": "C", "text": "To compare tree prices in different cities"},
+                    {"id": "D", "text": "To explain how sidewalks are manufactured"},
+                ],
+                "correct_option_id": "A",
+                "explanation": "这两个例子具体说明了城市种树并非只需种下去，还要考虑基础设施和持续养护。",
+                "evidence_sentence_ids": ["s3"],
+                "evidence_quote": "However, urban trees need careful planning because roots may damage sidewalks and young trees require regular watering.",
+                "skill": "author purpose",
+                "estimated_level": "B1",
+            },
+            {
+                "id": "q5",
                 "type": "vocabulary_context",
                 "prompt": "What does “native species” most likely mean in this article?",
                 "options": [
@@ -125,25 +188,25 @@ QUESTIONS = CandidateQuestions.model_validate(
                 "target_expression": "native species",
             },
             {
-                "id": "q5",
-                "type": "vocabulary_context",
-                "prompt": "In the final sentence, what does “maintenance” refer to?",
+                "id": "q6",
+                "type": "cloze",
+                "prompt": "Choose the best word to complete the sentence: Young trees require regular _____.",
                 "options": [
-                    {"id": "A", "text": "Selling trees to residents"},
-                    {"id": "B", "text": "Measuring daily traffic"},
-                    {"id": "C", "text": "Removing every mature tree"},
-                    {"id": "D", "text": "Continuing care after trees are planted"},
+                    {"id": "A", "text": "watering"},
+                    {"id": "B", "text": "traffic"},
+                    {"id": "C", "text": "concrete"},
+                    {"id": "D", "text": "advertising"},
                 ],
-                "correct_option_id": "D",
-                "explanation": "结合上文幼树需要定期浇水，maintenance 表示种植后的持续养护。",
-                "evidence_sentence_ids": ["s3", "s5"],
-                "evidence_quote": "long-term maintenance",
-                "skill": "meaning in context",
+                "correct_option_id": "A",
+                "explanation": "原文明确说幼树需要定期浇水，regular watering 是自然搭配。",
+                "evidence_sentence_ids": ["s3"],
+                "evidence_quote": "young trees require regular watering",
+                "skill": "collocation in context",
                 "estimated_level": "B1",
-                "target_expression": "maintenance",
+                "target_expression": "regular watering",
             },
             {
-                "id": "q6",
+                "id": "q7",
                 "type": "grammar",
                 "prompt": "What does “which” refer to in the second sentence?",
                 "options": [
@@ -159,6 +222,34 @@ QUESTIONS = CandidateQuestions.model_validate(
                 "skill": "reference and cohesion",
                 "estimated_level": "B1",
                 "target_expression": "which",
+            },
+            {
+                "id": "q8",
+                "type": "true_false",
+                "prompt": "Researchers recommend using only non-native tree species.",
+                "options": [
+                    {"id": "A", "text": "True"},
+                    {"id": "B", "text": "False"},
+                ],
+                "correct_option_id": "B",
+                "explanation": "原文建议选择 native species，所以该陈述与原文相反。",
+                "evidence_sentence_ids": ["s4"],
+                "evidence_quote": "Researchers recommend choosing native species and planting them where residents receive the greatest benefit.",
+                "skill": "verifying a statement",
+                "estimated_level": "B1",
+            },
+            {
+                "id": "q9",
+                "type": "short_answer",
+                "prompt": "What two goals does a successful urban tree program combine?",
+                "options": [],
+                "correct_option_id": None,
+                "accepted_answers": ["environmental goals and long-term maintenance", "environmental goals with long-term maintenance"],
+                "explanation": "末句直接给出成功项目需要结合的两个方面。",
+                "evidence_sentence_ids": ["s5"],
+                "evidence_quote": "environmental goals with long-term maintenance",
+                "skill": "short answer extraction",
+                "estimated_level": "B1",
             },
         ]
     }
@@ -179,7 +270,7 @@ class DemoProvider:
         )
         if not valid:
             raise ValueError(
-                "当前运行的是无密钥演示服务，只支持点击“载入示例”后的英文 B1 默认 6 题。"
+                "当前运行的是无密钥演示服务，只支持点击“载入示例”后的英文 B1 默认 9 题。"
                 "使用自己的文章需要配置 QUIZ_LLM_API_KEY 和 QUIZ_LLM_MODEL，"
                 "然后启动 polyglot_quiz.api:app。"
             )

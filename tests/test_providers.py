@@ -29,6 +29,16 @@ class FakeResponse:
                 "vocabulary_targets": [],
                 "grammar_targets": [],
                 "difficulty_reasons": [],
+                "paragraph_teaching": [
+                    {
+                        "paragraph_id": "p1",
+                        "translation_zh": "社区重复利用物品。",
+                        "vocabulary_notes_zh": [],
+                        "grammar_notes_zh": [],
+                        "discourse_note_zh": "概述文章主题。",
+                        "author_intent_zh": "介绍社区实践。",
+                    }
+                ],
             }
         )
         return {"choices": [{"message": {"content": content}}]}

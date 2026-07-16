@@ -45,7 +45,7 @@ uvicorn polyglot_quiz.api:app --host 127.0.0.1 --port 8000
 uvicorn examples.demo_server:app --host 127.0.0.1 --port 8000
 ```
 
-演示服务只支持默认英文示例和默认 6 题蓝图，不应用于生产。
+演示服务只支持默认英文示例和默认 9 种题型各 1 题的蓝图，不应用于生产。
 
 前端右上角可以临时配置 API Key、模型名和 OpenAI-compatible Base URL。配置通过 `X-Quiz-LLM-*` 同源请求头仅用于当前生成请求，不持久化。面向公网部署时，建议关闭或在网关限制这一能力，并统一使用服务端密钥和供应商白名单。
 
@@ -154,7 +154,9 @@ docker run --rm -p 8000:8000 \
 | `pipeline_started` | 题型蓝图 |
 | `extraction_started/completed` | 提取方式、字符、句子、词数、耗时 |
 | `url_download_retry` | 下载重试次数和网络错误类型 |
+| `learning_targets_selected` | 本地分级词汇/语法候选数量、来源和耗时 |
 | `analysis_started/completed` | 主题、词汇/语法目标数量、耗时 |
+| `analysis_targets_grounded` | 被本地资料拒绝或纠正的模型目标数量 |
 | `llm_request_started` | 模型、端点、Schema、提示词字符数、传输模式和尝试次数 |
 | `llm_response_received` | HTTP 状态、字节数、耗时 |
 | `llm_stream_completed` | SSE 状态、分片数、字节数、token 用量和结束原因 |
@@ -165,6 +167,7 @@ docker run --rm -p 8000:8000 \
 | `evidence_quotes_grounded` | 安全替换为原句的题号、句号和重合度 |
 | `quality_checked` | 尝试次数、分数、错误/警告代码 |
 | `repair_started` | 自动返修原因和下一次尝试 |
+| `answer_options_shuffled` | 重排后正确答案在 A-D 或 A-B 的数量分布 |
 | `pipeline_completed` | 题数、质量分、总耗时 |
 | `request_completed` | HTTP 200、总耗时 |
 
@@ -179,6 +182,28 @@ GET    /v1/provider-settings  查询脱敏状态
 PUT    /v1/provider-settings  保存默认配置
 DELETE /v1/provider-settings  清除默认配置
 ```
+
+### 真实生成进度
+
+前端在 `POST /v1/quizzes` 中发送随机的 `X-Quiz-Request-ID`，并轮询
+`GET /v1/progress/{request_id}`。进度由 Pipeline 在正文提取、本地分级匹配、
+模型分析、题目生成、证据核对、质量检查和返修边界主动更新；前端不再定时轮换
+猜测文案。状态只包含阶段、提示、粗粒度百分比和完成标记，不包含文章、Prompt
+或模型响应。
+
+进度状态保存在当前 Python 进程内，15 分钟后自动清理。本地单进程 Uvicorn 可直接
+使用；多 worker 或多实例部署应将 `ProgressStore` 替换为 Redis 等共享存储，否则
+轮询可能被路由到另一个进程而返回 404。
+
+### 答案位置重排
+
+题目通过质量检查后，后端才会重排选择题选项。四选一题按随机化的 A-D
+循环分配正确答案位置，判断题按 A-B 循环分配；每题的干扰项再独立随机排列，
+最后统一重写选项 ID 和 `correct_option_id`。因此连续四道四选一题的正确位置会
+覆盖 A、B、C、D 各一次，避免继承模型偏爱 A/B 的位置分布。
+
+Prompt 禁止解析引用选项字母；兼容已有模型输出时，后处理还会同步重映射
+`Option A`、`选项A`、`選択肢A`、`opción A` 和括号形式的引用。
 
 不要提交或复制 `.quiz-provider.json`。备份项目时应把它作为密钥处理。
 
