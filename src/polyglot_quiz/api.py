@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from .extraction import ExtractionError, _validate_public_url
+from .extraction import ExtractionError
 from .models import (
     GradeCandidate,
     GradeRequest,
@@ -19,6 +20,7 @@ from .models import (
 from .observability import log_event, reset_request_id, set_request_id
 from .pipeline import QuizPipeline, QuizQualityError
 from .progress import ProgressStore
+from .progressive import ProgressiveQuizStore
 from .profiles import PROFILES
 from .prompts import build_grading_prompt
 from .providers import (
@@ -49,13 +51,32 @@ def create_app(provider: LLMProvider | None = None) -> Any:
         description="Grounded quiz generation for English, Japanese, and Spanish articles.",
     )
     web_dir = Path(__file__).parent / "web"
+    miniapp_dir = Path(__file__).parent / "web_miniapp"
     progress_store = ProgressStore()
+    progressive_store = ProgressiveQuizStore()
+    progressive_executor = ThreadPoolExecutor(
+        max_workers=4,
+        thread_name_prefix="progressive-quiz",
+    )
 
     @app.get("/", include_in_schema=False)
-    def frontend() -> FileResponse:
+    def frontend() -> Any:
         return FileResponse(web_dir / "index.html")
 
+    @app.get("/miniapp", include_in_schema=False)
+    def miniapp_frontend() -> Any:
+        return FileResponse(miniapp_dir / "index.html")
+
     app.mount("/assets", StaticFiles(directory=web_dir), name="assets")
+    app.mount(
+        "/miniapp-assets",
+        StaticFiles(directory=miniapp_dir),
+        name="miniapp-assets",
+    )
+
+    @app.on_event("shutdown")
+    def shutdown_progressive_executor() -> None:
+        progressive_executor.shutdown(wait=False, cancel_futures=True)
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -91,6 +112,62 @@ def create_app(provider: LLMProvider | None = None) -> Any:
         if snapshot is None:
             raise HTTPException(status_code=404, detail="Progress request not found")
         return snapshot.as_dict()
+
+    @app.get("/v1/progressive-quizzes/{job_id}")
+    def progressive_quiz(job_id: str) -> dict[str, object]:
+        if not _valid_request_id(job_id):
+            raise HTTPException(status_code=404, detail="Progressive quiz not found")
+        snapshot = progressive_store.get(job_id)
+        if snapshot is None:
+            raise HTTPException(status_code=404, detail="Progressive quiz not found")
+        return snapshot
+
+    @app.post("/v1/progressive-quizzes", status_code=202)
+    def start_progressive_quiz(
+        request: QuizRequest,
+        api_key: str | None = Header(default=None, alias="X-Quiz-LLM-API-Key"),
+        model: str | None = Header(default=None, alias="X-Quiz-LLM-Model"),
+        base_url: str | None = Header(default=None, alias="X-Quiz-LLM-Base-URL"),
+        allow_insecure_http: str | None = Header(
+            default=None, alias="X-Quiz-Allow-Insecure-HTTP"
+        ),
+        compatibility_mode: Literal["auto", "openai", "qwen_stream"] = Header(
+            default="auto", alias="X-Quiz-LLM-Compatibility"
+        ),
+        client_request_id: str | None = Header(default=None, alias="X-Quiz-Request-ID"),
+    ) -> dict[str, object]:
+        if client_request_id is not None and not _valid_request_id(client_request_id):
+            raise HTTPException(status_code=422, detail="Invalid request ID")
+        job_id = client_request_id or uuid4().hex
+        try:
+            request_provider = _provider_from_request_headers(
+                api_key,
+                model,
+                base_url,
+                allow_insecure_http=allow_insecure_http == "true",
+                compatibility_mode=compatibility_mode,
+            )
+            active_provider = request_provider or provider or OpenAICompatibleProvider.from_env()
+            request_validator = getattr(active_provider, "validate_request", None)
+            if callable(request_validator):
+                request_validator(request)
+        except (ProviderError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=_safe_error_text(exc)) from exc
+
+        progressive_store.start(job_id, request.requested_total)
+        progressive_executor.submit(
+            _run_progressive_quiz,
+            job_id,
+            request,
+            active_provider,
+            progressive_store,
+        )
+        return {
+            "id": job_id,
+            "status_url": f"/v1/progressive-quizzes/{job_id}",
+            "stage": "queued",
+            "requested_total": request.requested_total,
+        }
 
     @app.put("/v1/provider-settings")
     def put_provider_settings(settings: StoredProviderSettings) -> dict[str, object]:
@@ -307,11 +384,18 @@ def create_app(provider: LLMProvider | None = None) -> Any:
                 exc.status_code or "unknown",
                 exc,
             )
+            error_detail = _safe_error_text(
+                exc,
+                secret=getattr(active_provider, "api_key", None),
+            )
             if exc.status_code == 429:
-                detail = f"模型服务当前限流或额度不足，请稍后重试。请求 ID：{request_id}"
+                detail = (
+                    f"模型服务当前限流或额度不足：{error_detail}。"
+                    f"请求 ID：{request_id}"
+                )
                 status_code = 503
             else:
-                detail = f"模型服务请求失败，请查看后端日志。请求 ID：{request_id}"
+                detail = f"模型服务请求失败：{error_detail}。请求 ID：{request_id}"
                 status_code = 502
             raise HTTPException(
                 status_code=status_code,
@@ -329,7 +413,10 @@ def create_app(provider: LLMProvider | None = None) -> Any:
             )
             raise HTTPException(
                 status_code=502,
-                detail=f"文章下载或正文提取失败，请查看后端日志。请求 ID：{request_id}",
+                detail=(
+                    f"文章下载或正文提取失败：{_safe_error_text(exc)}。"
+                    f"请求 ID：{request_id}"
+                ),
                 headers={"X-Request-ID": request_id},
             ) from exc
         except ValueError as exc:
@@ -373,11 +460,6 @@ def _provider_from_request_headers(
     if parsed.scheme == "http":
         if not allow_insecure_http:
             raise ValueError("使用 HTTP 模型地址前，必须在前端确认允许明文 HTTP")
-    else:
-        try:
-            _validate_public_url(endpoint)
-        except ExtractionError as exc:
-            raise ValueError(f"模型 Base URL 不安全或无法解析：{exc}") from exc
     return OpenAICompatibleProvider(
         api_key=api_key,
         model=model,
@@ -394,3 +476,35 @@ def _valid_request_id(value: str) -> bool:
         character.isascii() and (character.isalnum() or character in "_-")
         for character in value
     )
+
+
+def _safe_error_text(error: Exception, *, secret: str | None = None) -> str:
+    detail = " ".join(str(error).split()) or type(error).__name__
+    if secret:
+        detail = detail.replace(secret, "[REDACTED]")
+    return detail[:1500]
+
+
+def _run_progressive_quiz(
+    job_id: str,
+    request: QuizRequest,
+    provider: LLMProvider,
+    store: ProgressiveQuizStore,
+) -> None:
+    request_token = set_request_id(job_id)
+    try:
+        QuizPipeline(
+            provider,
+            progress=lambda stage, message, percent: store.update(
+                job_id, stage, message, percent
+            ),
+            publish=lambda event, payload: store.publish(job_id, event, payload),
+            incremental_questions=True,
+            fast_mode=True,
+        ).generate(request)
+    except Exception as exc:
+        detail = _safe_error_text(exc, secret=getattr(provider, "api_key", None))
+        logger.exception("progressive_quiz_failed request_id=%s error=%s", job_id, detail)
+        store.fail(job_id, detail)
+    finally:
+        reset_request_id(request_token)

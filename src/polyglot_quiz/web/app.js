@@ -534,11 +534,18 @@ function selectResultTab(name) {
 }
 
 function exportJson() {
-  const blob = new Blob([JSON.stringify(state.package, null, 2)], { type: "application/json" });
+  const json = JSON.stringify(state.package, null, 2);
+  const filename = `polyglot-quiz-${Date.now()}.json`;
+  if (window.AndroidBridge?.saveJson) {
+    window.AndroidBridge.saveJson(json, filename);
+    showToast("JSON 已保存到下载目录");
+    return;
+  }
+  const blob = new Blob([json], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `polyglot-quiz-${Date.now()}.json`;
+  anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
   showToast("JSON 已导出");

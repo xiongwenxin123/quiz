@@ -10,3 +10,7 @@ dist/
 build/
 *.egg-info/
 quiz-output.json
+android/.gradle/
+android/local.properties
+android/app/build/
+android/*.apk

@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f7f8f7">
+    <title>精读小课</title>
+    <link rel="stylesheet" href="/miniapp-assets/styles.css?v=20260717-1">
+    <script src="/miniapp-assets/app.js?v=20260717-1" defer></script>
+  </head>
+  <body>
+    <div class="miniapp-shell">
+      <header class="miniapp-header">
+        <button class="header-back" id="header-back" type="button" aria-label="返回" title="返回" hidden>‹</button>
+        <strong id="page-title">精读小课</strong>
+        <div class="wechat-capsule" aria-label="小程序菜单">
+          <button id="open-settings" type="button" aria-label="模型设置" title="模型设置">•••</button>
+          <span></span>
+          <button id="capsule-home" type="button" aria-label="回到首页" title="回到首页">○</button>
+        </div>
+      </header>
+
+      <main>
+        <section class="compose-view" id="compose-view">
+          <div class="compose-heading">
+            <span class="eyebrow">新建精读</span>
+            <h1>今天读什么？</h1>
+          </div>
+
+          <form id="miniapp-form">
+            <div class="source-switch" role="tablist" aria-label="文章来源">
+              <button class="active" type="button" role="tab" aria-selected="true" data-source="text">粘贴正文</button>
+              <button type="button" role="tab" aria-selected="false" data-source="url">文章链接</button>
+            </div>
+
+            <div id="text-panel">
+              <label class="sr-only" for="source-text">文章正文</label>
+              <textarea id="source-text" minlength="80" maxlength="100000" placeholder="粘贴英文、日文或西班牙文文章..." required></textarea>
+              <div class="input-meta"><span id="source-count">0 字符</span><button id="load-sample" type="button">载入示例</button></div>
+            </div>
+            <div id="url-panel" hidden>
+              <label class="field-label" for="source-url">公开文章链接</label>
+              <input id="source-url" type="url" inputmode="url" placeholder="https://example.com/article">
+            </div>
+
+            <fieldset>
+              <legend>文章语言</legend>
+              <div class="language-control">
+                <button class="active" type="button" data-language="en"><strong>EN</strong><small>English</small></button>
+                <button type="button" data-language="ja"><strong>日</strong><small>日本語</small></button>
+                <button type="button" data-language="es"><strong>ES</strong><small>Español</small></button>
+              </div>
+            </fieldset>
+
+            <div class="form-grid">
+              <label><span class="field-label" id="level-label">CEFR 难度</span><select id="level-select"></select></label>
+              <label><span class="field-label">练习数量</span><select id="question-count"><option value="3">3 题</option><option value="5" selected>5 题</option><option value="9">9 题</option></select></label>
+            </div>
+
+            <button class="primary-action" id="start-button" type="submit"><span>开始精读</span><i aria-hidden="true">›</i></button>
+            <p class="form-error" id="compose-error" role="alert" hidden></p>
+          </form>
+        </section>
+
+        <section class="reader-view" id="reader-view" hidden>
+          <div class="job-status" id="job-status">
+            <div><span class="status-dot"></span><strong id="job-message">正在准备文章...</strong><output id="job-percent">1%</output></div>
+            <div class="job-track"><span id="job-progress"></span></div>
+          </div>
+          <div class="job-error" id="job-error" hidden></div>
+
+          <article class="teaching-flow" id="teaching-section">
+            <header class="content-header">
+              <span class="eyebrow">文章教学</span>
+              <h1 id="article-title">文章解析中</h1>
+              <p id="article-summary">原文准备好后会先显示在这里。</p>
+            </header>
+            <div id="article-content" class="article-content">
+              <div class="skeleton-block"><span></span><span></span><span></span></div>
+            </div>
+          </article>
+
+          <section class="stream-section" id="vocabulary-section">
+            <header><div><span class="eyebrow">核心词汇</span><h2>边读边积累</h2></div><output id="vocabulary-count">0</output></header>
+            <div id="vocabulary-list" class="stream-list"><p class="pending-copy">文章教学完成后继续生成</p></div>
+          </section>
+
+          <section class="stream-section questions-section" id="questions-section">
+            <header><div><span class="eyebrow">随堂练习</span><h2>逐题生成</h2></div><output id="question-progress">0 / 0</output></header>
+            <div id="question-errors"></div>
+            <div id="question-list" class="stream-list"><p class="pending-copy">题目将在后台逐题出现</p></div>
+          </section>
+        </section>
+      </main>
+
+      <nav class="tab-bar" aria-label="主导航">
+        <button class="active" type="button" data-tab="study"><span>▤</span><small>精读</small></button>
+        <button type="button" data-tab="new"><span>＋</span><small>新建</small></button>
+        <button type="button" data-tab="settings"><span>⚙</span><small>设置</small></button>
+      </nav>
+    </div>
+
+    <dialog id="settings-dialog" class="settings-sheet">
+      <form method="dialog" class="sheet-handle-form"><button aria-label="关闭设置"></button></form>
+      <div class="sheet-header"><div><span class="eyebrow">模型服务</span><h2>连接设置</h2></div><button id="close-settings" type="button" aria-label="关闭" title="关闭">×</button></div>
+      <div class="sheet-body">
+        <label><span class="field-label">服务商</span><select id="provider-preset"><option value="siliconflow">硅基流动</option><option value="openai">OpenAI</option><option value="custom">自定义</option></select></label>
+        <label><span class="field-label">Base URL</span><input id="model-base-url" type="url" value="https://api.siliconflow.cn/v1"></label>
+        <label><span class="field-label">模型名称</span><input id="model-name" type="text" placeholder="Qwen/Qwen3-8B"></label>
+        <label><span class="field-label">API Key</span><input id="model-api-key" type="password" autocomplete="off" placeholder="输入 API Key"></label>
+        <label><span class="field-label">兼容模式</span><select id="compatibility-mode"><option value="auto">自动</option><option value="openai">标准 OpenAI</option><option value="qwen_stream">Qwen 流式</option></select></label>
+        <label class="check-row"><input id="allow-http" type="checkbox"><span><strong>允许明文 HTTP</strong><small>仅用于可信内网服务</small></span></label>
+        <p class="sheet-error" id="settings-error" hidden></p>
+      </div>
+      <div class="sheet-actions"><button id="save-session" class="secondary-action" type="button">本次使用</button><button id="save-default" class="primary-small" type="button">保存默认</button></div>
+    </dialog>
+
+    <div class="toast" id="toast" hidden></div>
+  </body>
+</html>

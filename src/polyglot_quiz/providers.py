@@ -9,7 +9,7 @@ from time import perf_counter
 from typing import Literal, Protocol, TypeVar
 
 import httpx
-from pydantic import BaseModel, Field, ValidationError
+from .pydantic_compat import BaseModel, Field, ValidationError
 
 from .observability import log_event
 
@@ -142,6 +142,28 @@ class OpenAICompatibleProvider:
         raise ProviderError("No default model is configured")
 
     def generate(self, prompt: str, response_model: type[T]) -> T:
+        return self._generate(prompt, response_model, max_tokens=8192)
+
+    def generate_with_limit(
+        self,
+        prompt: str,
+        response_model: type[T],
+        *,
+        max_tokens: int,
+    ) -> T:
+        return self._generate(
+            prompt,
+            response_model,
+            max_tokens=max(256, min(max_tokens, 8192)),
+        )
+
+    def _generate(
+        self,
+        prompt: str,
+        response_model: type[T],
+        *,
+        max_tokens: int,
+    ) -> T:
         payload = {
             "model": self.model_name,
             "messages": [
@@ -160,8 +182,11 @@ class OpenAICompatibleProvider:
                     "schema": response_model.model_json_schema(),
                 },
             },
-            "max_tokens": 8192,
+            "max_tokens": max_tokens,
         }
+        if "qwen" in self.model_name.casefold():
+            payload["enable_thinking"] = False
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
         endpoint = f"{self.base_url}/chat/completions"
         use_streaming = self.compatibility_mode == "qwen_stream" or (
             self.compatibility_mode == "auto" and self.model_name.casefold().startswith("qwen")

@@ -1,5 +1,6 @@
 import json
 import tempfile
+import time
 import unittest
 from collections import Counter
 from pathlib import Path
@@ -12,6 +13,7 @@ except ImportError:  # API dependencies are optional for core-only installs.
 
 from examples.demo_server import DemoProvider
 from polyglot_quiz.api import create_app
+from polyglot_quiz.extraction import ExtractionError
 from polyglot_quiz.models import QuestionType
 from polyglot_quiz.providers import ProviderError
 
@@ -35,6 +37,82 @@ class ApiTests(unittest.TestCase):
         self.assertIn("Polyglot Quiz", page.text)
         self.assertEqual(self.client.get("/assets/app.js").status_code, 200)
         self.assertEqual(self.client.get("/assets/styles.css").status_code, 200)
+
+        miniapp = self.client.get("/miniapp")
+        self.assertEqual(miniapp.status_code, 200)
+        self.assertIn("精读小课", miniapp.text)
+        miniapp_js = self.client.get("/miniapp-assets/app.js")
+        miniapp_css = self.client.get("/miniapp-assets/styles.css")
+        self.assertEqual(miniapp_js.status_code, 200)
+        self.assertEqual(miniapp_css.status_code, 200)
+        self.assertIn("/v1/progressive-quizzes", miniapp_js.text)
+        self.assertIn("safe-area-inset-top", miniapp_css.text)
+
+    def test_progressive_quiz_retains_article_and_builds_questions(self) -> None:
+        client = TestClient(create_app(DemoProvider(progressive_delay=0.02)))
+        request_path = Path(__file__).parents[1] / "examples" / "english-request.json"
+        request = json.loads(request_path.read_text())
+        request.pop("question_counts")
+        job_id = "progressivetest1234"
+        created = client.post(
+            "/v1/progressive-quizzes",
+            json=request,
+            headers={"X-Quiz-Request-ID": job_id},
+        )
+        self.assertEqual(created.status_code, 202, created.text)
+        self.assertEqual(created.json()["id"], job_id)
+
+        snapshots = []
+        for _ in range(100):
+            response = client.get(f"/v1/progressive-quizzes/{job_id}")
+            self.assertEqual(response.status_code, 200, response.text)
+            snapshot = response.json()
+            snapshots.append(snapshot)
+            if snapshot["done"]:
+                break
+            time.sleep(0.01)
+
+        final = snapshots[-1]
+        self.assertTrue(final["done"], final)
+        self.assertFalse(final["failed"], final.get("error"))
+        self.assertEqual(final["percent"], 100)
+        self.assertEqual(len(final["article"]["paragraphs"]), 3)
+        self.assertEqual(len(final["analysis"]["paragraph_teaching"]), 3)
+        self.assertGreaterEqual(len(final["vocabulary"]), 1)
+        self.assertEqual(len(final["questions"]), 9)
+        self.assertEqual(final["question_errors"], [])
+        self.assertTrue(
+            any(
+                item["article"] is not None
+                and len(item["questions"]) < item["requested_total"]
+                and not item["done"]
+                for item in snapshots
+            ),
+            snapshots,
+        )
+
+    def test_progressive_model_failure_keeps_article_and_error_detail(self) -> None:
+        client = TestClient(create_app(RateLimitedProvider()))
+        request = json.loads(
+            (Path(__file__).parents[1] / "examples" / "english-request.json").read_text()
+        )
+        job_id = "progressivefail1234"
+        created = client.post(
+            "/v1/progressive-quizzes",
+            json=request,
+            headers={"X-Quiz-Request-ID": job_id},
+        )
+        self.assertEqual(created.status_code, 202, created.text)
+
+        for _ in range(100):
+            final = client.get(f"/v1/progressive-quizzes/{job_id}").json()
+            if final["done"]:
+                break
+            time.sleep(0.01)
+
+        self.assertTrue(final["failed"], final)
+        self.assertIsNotNone(final["article"])
+        self.assertIn("quota exhausted", final["error"])
 
     def test_config_lists_all_languages(self) -> None:
         response = self.client.get("/v1/config")
@@ -160,10 +238,7 @@ class ApiTests(unittest.TestCase):
         request_path = Path(__file__).parents[1] / "examples" / "english-request.json"
         request = json.loads(request_path.read_text())
         request.pop("question_counts")
-        with (
-            patch("polyglot_quiz.api._validate_public_url") as url_validator,
-            patch("polyglot_quiz.api.OpenAICompatibleProvider") as provider_class,
-        ):
+        with patch("polyglot_quiz.api.OpenAICompatibleProvider") as provider_class:
             provider_class.return_value = DemoProvider()
             response = self.client.post(
                 "/v1/quizzes",
@@ -175,7 +250,6 @@ class ApiTests(unittest.TestCase):
                 },
             )
         self.assertEqual(response.status_code, 200, response.text)
-        url_validator.assert_called_once_with("https://llm.example/v1")
         provider_class.assert_called_once_with(
             api_key="browser-key",
             model="browser-model",
@@ -234,7 +308,7 @@ class ApiTests(unittest.TestCase):
             compatibility_mode="qwen_stream",
         )
 
-    def test_rate_limit_is_logged_but_not_exposed_to_frontend(self) -> None:
+    def test_rate_limit_detail_is_returned_to_frontend(self) -> None:
         client = TestClient(create_app(RateLimitedProvider()))
         request_path = Path(__file__).parents[1] / "examples" / "english-request.json"
         request = json.loads(request_path.read_text())
@@ -242,11 +316,23 @@ class ApiTests(unittest.TestCase):
             response = client.post("/v1/quizzes", json=request)
         self.assertEqual(response.status_code, 503)
         self.assertIn("限流或额度不足", response.json()["detail"])
-        self.assertNotIn("quota exhausted", response.text)
+        self.assertIn("quota exhausted", response.text)
         self.assertNotIn("llm.internal", response.text)
         self.assertTrue(response.headers["X-Request-ID"])
         self.assertIn("upstream_status=429", logs.output[0])
         self.assertIn("quota exhausted", logs.output[0])
+
+    def test_extraction_error_detail_is_returned_to_frontend(self) -> None:
+        request_path = Path(__file__).parents[1] / "examples" / "english-request.json"
+        request = json.loads(request_path.read_text())
+        with patch(
+            "polyglot_quiz.api.QuizPipeline.generate",
+            side_effect=ExtractionError("URL resolves to a non-public address: 2001::1"),
+        ):
+            response = self.client.post("/v1/quizzes", json=request)
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("URL resolves to a non-public address: 2001::1", response.text)
+        self.assertTrue(response.headers["X-Request-ID"])
 
     def test_default_provider_can_be_saved_and_deleted_without_exposing_key(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

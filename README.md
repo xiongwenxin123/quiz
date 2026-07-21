@@ -79,6 +79,27 @@ uvicorn examples.demo_server:app --host 127.0.0.1 --port 8000
 make test
 ```
 
+## Android APP
+
+Android 工程位于 `android/`。应用把 Python/FastAPI 后端和响应式前端一起
+打进 APK，安装后不需要另行部署本项目服务；生成题目、AI 评分和 URL 抽取
+仍需要网络。首次使用时请在应用右上角的模型设置中配置兼容接口。
+
+当前已生成可直接侧载安装的调试版：
+
+```text
+android/PolyglotQuiz-0.1.0-debug.apk
+```
+
+使用 JDK 17、Python 3.11 和 Android SDK 35 重新构建：
+
+```bash
+cd android
+./gradlew assembleDebug
+```
+
+详细说明见 [`android/README.md`](android/README.md)。
+
 ## 文档
 
 - [完整设计与实施方案](docs/IMPLEMENTATION_GUIDE.zh-CN.md)

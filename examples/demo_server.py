@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from time import sleep
 from typing import TypeVar
 
 from pydantic import BaseModel
@@ -305,6 +306,9 @@ class DemoProvider:
     model_name = "demo-fixture"
     runtime_mode = "demo"
 
+    def __init__(self, progressive_delay: float = 0) -> None:
+        self.progressive_delay = progressive_delay
+
     def validate_request(self, request: QuizRequest) -> None:
         counts = {item.type.value: item.count for item in request.question_counts if item.count}
         valid = (
@@ -324,12 +328,29 @@ class DemoProvider:
         if response_model is ArticleAnalysis:
             return ANALYSIS.model_copy(deep=True)  # type: ignore[return-value]
         if response_model is CandidateQuestions:
+            if self.progressive_delay:
+                sleep(self.progressive_delay)
             if "- article_summary: 1" in prompt:
                 return SUMMARY_QUESTION.model_copy(deep=True)  # type: ignore[return-value]
+            requested_types = [
+                question.type
+                for question in QUESTIONS.questions
+                if f"- {question.type.value}: 1" in prompt
+            ]
+            if len(requested_types) == 1:
+                requested_type = requested_types[0]
+                question = next(
+                    question
+                    for question in QUESTIONS.questions
+                    if question.type == requested_type
+                )
+                return CandidateQuestions(
+                    questions=[question.model_copy(deep=True)]
+                )  # type: ignore[return-value]
             return QUESTIONS.model_copy(deep=True)  # type: ignore[return-value]
         if response_model is GradeCandidate:
             return GRADE.model_copy(deep=True)  # type: ignore[return-value]
         raise TypeError(f"Unsupported response model: {response_model}")
 
 
-app = create_app(DemoProvider())
+app = create_app(DemoProvider(progressive_delay=0.25))

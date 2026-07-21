@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, HttpUrl, model_validator
+from .pydantic_compat import BaseModel, Field, HttpUrl, ListField, model_validator
 
 
 class TargetLanguage(StrEnum):
@@ -159,7 +159,7 @@ class Sentence(BaseModel):
 class ArticleParagraph(BaseModel):
     id: str = Field(pattern=r"^p\d+$")
     text: str = Field(min_length=1)
-    sentence_ids: list[str] = Field(min_length=1)
+    sentence_ids: list[str] = ListField(min_length=1)
 
 
 class ArticleDocument(BaseModel):
@@ -167,8 +167,8 @@ class ArticleDocument(BaseModel):
     source_url: str | None = None
     language: TargetLanguage
     text: str = Field(min_length=80)
-    sentences: list[Sentence] = Field(min_length=1)
-    paragraphs: list[ArticleParagraph] = Field(min_length=1)
+    sentences: list[Sentence] = ListField(min_length=1)
+    paragraphs: list[ArticleParagraph] = ListField(min_length=1)
     word_or_token_count: int = Field(ge=1)
     extraction_method: str
 
@@ -187,20 +187,20 @@ class VocabularyTarget(BaseModel):
     evidence_sentence_id: str = Field(pattern=r"^s\d+$")
     estimated_level: str
     source_excerpt: str = Field(min_length=1, max_length=1500)
-    examples: list[VocabularyExample] = Field(min_length=2, max_length=3)
+    examples: list[VocabularyExample] = ListField(min_length=1, max_length=3)
 
 
 class ParagraphTeaching(BaseModel):
     paragraph_id: str = Field(pattern=r"^p\d+$")
     translation_zh: str = Field(min_length=1, max_length=3000)
-    vocabulary_notes_zh: list[str] = Field(default_factory=list, max_length=6)
-    grammar_notes_zh: list[str] = Field(default_factory=list, max_length=6)
-    discourse_note_zh: str = Field(min_length=1, max_length=1000)
-    author_intent_zh: str = Field(min_length=1, max_length=1000)
+    vocabulary_notes_zh: list[str] = ListField(default_factory=list, max_length=6)
+    grammar_notes_zh: list[str] = ListField(default_factory=list, max_length=6)
+    discourse_note_zh: str = Field(default="", max_length=1000)
+    author_intent_zh: str = Field(default="", max_length=1000)
 
 
 class ParagraphTeachingBatch(BaseModel):
-    paragraph_teaching: list[ParagraphTeaching] = Field(min_length=1)
+    paragraph_teaching: list[ParagraphTeaching] = ListField(min_length=1)
 
 
 class ArticleAnalysis(BaseModel):
@@ -208,7 +208,7 @@ class ArticleAnalysis(BaseModel):
     title: str
     summary: str
     main_idea: str
-    topics: list[str] = Field(min_length=1, max_length=8)
+    topics: list[str] = ListField(min_length=1, max_length=8)
     vocabulary_targets: list[VocabularyTarget] = Field(default_factory=list)
     grammar_targets: list[str] = Field(default_factory=list)
     difficulty_reasons: list[str] = Field(default_factory=list)
@@ -224,19 +224,77 @@ class Question(BaseModel):
     id: str = Field(pattern=r"^q\d+$")
     type: QuestionType
     prompt: str = Field(min_length=3, max_length=1000)
-    options: list[AnswerOption] = Field(default_factory=list, max_length=6)
+    options: list[AnswerOption] = ListField(default_factory=list, max_length=6)
     correct_option_id: str | None = Field(default=None, pattern=r"^[A-F]$")
-    accepted_answers: list[str] = Field(default_factory=list, max_length=8)
+    accepted_answers: list[str] = ListField(default_factory=list, max_length=8)
     evaluation_mode: EvaluationMode = EvaluationMode.AUTO
-    rubric: list[str] = Field(default_factory=list, max_length=8)
+    rubric: list[str] = ListField(default_factory=list, max_length=8)
     word_limit: int | None = Field(default=None, ge=1, le=2000)
     explanation: str = Field(min_length=3, max_length=2000)
-    evidence_sentence_ids: list[str] = Field(min_length=1, max_length=5)
+    evidence_sentence_ids: list[str] = ListField(min_length=1, max_length=5)
     evidence_quote: str = Field(min_length=1, max_length=1500)
     skill: str = Field(min_length=2, max_length=100)
     estimated_level: str = Field(min_length=1, max_length=16)
     target_expression: str | None = Field(default=None, max_length=200)
     furigana: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_model_answer_fields(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        options = data.get("options") or []
+        if isinstance(options, list) and options:
+            normalized_options: list[dict[str, object]] = []
+            original_ids: list[str] = []
+            marked_correct: int | None = None
+            for index, option in enumerate(options[:6]):
+                canonical_id = chr(ord("A") + index)
+                if isinstance(option, dict):
+                    original_ids.append(str(option.get("id", canonical_id)))
+                    if option.get("is_correct") is True or option.get("correct") is True:
+                        marked_correct = index
+                    normalized_options.append(
+                        {**option, "id": canonical_id, "text": str(option.get("text", ""))}
+                    )
+                else:
+                    original_ids.append(canonical_id)
+                    normalized_options.append({"id": canonical_id, "text": str(option)})
+
+            raw_answer = data.get("correct_option_id")
+            if raw_answer is None:
+                raw_answer = data.get("correct_answer", data.get("answer"))
+            answer_index = _match_option_index(raw_answer, original_ids, normalized_options)
+            if answer_index is None:
+                answer_index = marked_correct
+            data["options"] = normalized_options
+            if answer_index is not None:
+                data["correct_option_id"] = chr(ord("A") + answer_index)
+        elif not options:
+            answers = data.get("accepted_answers")
+            if isinstance(answers, str):
+                data["accepted_answers"] = [answers]
+            elif not answers:
+                fallback = next(
+                    (
+                        data.get(key)
+                        for key in (
+                            "correct_answer",
+                            "answer",
+                            "reference_answer",
+                            "model_answer",
+                        )
+                        if data.get(key)
+                    ),
+                    None,
+                )
+                if isinstance(fallback, list):
+                    data["accepted_answers"] = [str(item) for item in fallback if str(item)]
+                elif fallback is not None:
+                    data["accepted_answers"] = [str(fallback)]
+            data["correct_option_id"] = None
+        return data
 
     @model_validator(mode="after")
     def answer_shape_matches_question(self) -> Question:
@@ -270,13 +328,13 @@ class QuizMetadata(BaseModel):
 
 
 class CandidateQuestions(BaseModel):
-    questions: list[Question] = Field(min_length=1)
+    questions: list[Question] = ListField(min_length=1)
 
 
 class GradeRequest(BaseModel):
     question: Question
     learner_answer: str = Field(min_length=1, max_length=20_000)
-    evidence_sentences: list[Sentence] = Field(min_length=1, max_length=5)
+    evidence_sentences: list[Sentence] = ListField(min_length=1, max_length=5)
     target_language: TargetLanguage
     explanation_language: str = Field(default="zh-CN", min_length=2, max_length=16)
 
@@ -300,9 +358,9 @@ class GradeDimension(BaseModel):
 
 
 class GradeCandidate(BaseModel):
-    dimensions: list[GradeDimension] = Field(min_length=1, max_length=8)
-    strengths: list[str] = Field(min_length=1, max_length=6)
-    improvements: list[str] = Field(min_length=1, max_length=6)
+    dimensions: list[GradeDimension] = ListField(min_length=1, max_length=8)
+    strengths: list[str] = ListField(min_length=1, max_length=6)
+    improvements: list[str] = ListField(min_length=1, max_length=6)
     overall_feedback: str = Field(min_length=2, max_length=2000)
     revised_example: str = Field(min_length=2, max_length=8000)
 
@@ -316,6 +374,39 @@ class QuizPackage(BaseModel):
     schema_version: Literal["1.0"] = "1.0"
     article: ArticleDocument
     analysis: ArticleAnalysis
-    questions: list[Question] = Field(min_length=1)
+    questions: list[Question] = ListField(min_length=1)
     metadata: QuizMetadata
     warnings: list[str] = Field(default_factory=list)
+
+
+def _match_option_index(
+    raw_answer: object,
+    original_ids: list[str],
+    options: list[dict[str, object]],
+) -> int | None:
+    if isinstance(raw_answer, int):
+        if 1 <= raw_answer <= len(options):
+            return raw_answer - 1
+        if 0 <= raw_answer < len(options):
+            return raw_answer
+        return None
+    if raw_answer is None:
+        return None
+    answer = str(raw_answer).strip()
+    if answer.isdigit():
+        numeric = int(answer)
+        if 1 <= numeric <= len(options):
+            return numeric - 1
+        if 0 <= numeric < len(options):
+            return numeric
+    token = answer.rstrip(".、:：)）").strip().casefold()
+    for index, original_id in enumerate(original_ids):
+        if token == original_id.strip().rstrip(".、:：)）").casefold():
+            return index
+    if len(token) == 1 and "a" <= token <= "f":
+        index = ord(token) - ord("a")
+        return index if index < len(options) else None
+    for index, option in enumerate(options):
+        if answer.casefold() == str(option.get("text", "")).strip().casefold():
+            return index
+    return None

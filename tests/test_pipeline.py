@@ -1,6 +1,9 @@
 import unittest
 from collections import deque
+from threading import Lock
+from time import sleep
 
+from examples.demo_server import DEMO_SOURCE, DemoProvider
 from polyglot_quiz.models import (
     ArticleAnalysis,
     CandidateQuestions,
@@ -26,6 +29,31 @@ class FakeProvider:
         return value
 
 
+class TrackingDemoProvider(DemoProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self._lock = Lock()
+        self.active_questions = 0
+        self.max_active_questions = 0
+        self.question_prompts: list[str] = []
+
+    def generate(self, prompt: str, response_model: type[object]) -> object:
+        if response_model is CandidateQuestions:
+            with self._lock:
+                self.active_questions += 1
+                self.max_active_questions = max(
+                    self.max_active_questions, self.active_questions
+                )
+                self.question_prompts.append(prompt)
+            sleep(0.04)
+            try:
+                return super().generate(prompt, response_model)  # type: ignore[arg-type]
+            finally:
+                with self._lock:
+                    self.active_questions -= 1
+        return super().generate(prompt, response_model)  # type: ignore[arg-type]
+
+
 def analysis() -> ArticleAnalysis:
     return ArticleAnalysis(
         detected_language="en",
@@ -47,6 +75,37 @@ def analysis() -> ArticleAnalysis:
 
 
 class PipelineTests(unittest.TestCase):
+    def test_fast_incremental_questions_are_compact_parallel_and_ordered(self) -> None:
+        provider = TrackingDemoProvider()
+        published: list[tuple[str, object]] = []
+        request = QuizRequest(
+            source_text=DEMO_SOURCE,
+            target_language="en",
+            level="B1",
+            question_counts=[
+                {"type": "main_idea", "count": 1},
+                {"type": "detail", "count": 1},
+                {"type": "inference", "count": 1},
+            ],
+        )
+        result = QuizPipeline(
+            provider,
+            publish=lambda event, payload: published.append((event, payload)),
+            incremental_questions=True,
+            fast_mode=True,
+        ).generate(request)
+
+        self.assertEqual(provider.max_active_questions, 2)
+        self.assertEqual([item.id for item in result.questions], ["q1", "q2", "q3"])
+        published_questions = [payload for event, payload in published if event == "question"]
+        self.assertEqual([item.id for item in published_questions], ["q1", "q2", "q3"])
+        self.assertEqual(len(provider.question_prompts), 3)
+        for prompt in provider.question_prompts:
+            self.assertNotIn('"paragraph_teaching"', prompt)
+            self.assertNotIn('"$defs"', prompt)
+            self.assertIn("The API enforces its JSON schema", prompt)
+            self.assertLess(len(prompt), 7000)
+
     def test_long_article_teaching_is_generated_in_bounded_batches(self) -> None:
         paragraphs = [
             f"Paragraph {index} explains one distinct point about a long article clearly."

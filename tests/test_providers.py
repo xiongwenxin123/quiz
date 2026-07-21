@@ -187,8 +187,22 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(result.detected_language.value, "es")
         kwargs = stream.call_args.kwargs  # type: ignore[attr-defined]
         self.assertTrue(kwargs["json"]["stream"])
+        self.assertFalse(kwargs["json"]["enable_thinking"])
+        self.assertEqual(
+            kwargs["json"]["chat_template_kwargs"], {"enable_thinking": False}
+        )
         self.assertIn('"transport": "sse_stream"', "\n".join(logs.output))
         self.assertIn('"output_field": "delta.content"', "\n".join(logs.output))
+
+    @patch("polyglot_quiz.providers.httpx.post", return_value=FakeResponse())
+    def test_limited_generation_uses_requested_output_cap(self, post: object) -> None:
+        provider = OpenAICompatibleProvider(
+            api_key="test-key",
+            model="test-model",
+            base_url="https://llm.example/v1",
+        )
+        provider.generate_with_limit("analyze", ArticleAnalysis, max_tokens=1200)
+        self.assertEqual(post.call_args.kwargs["json"]["max_tokens"], 1200)  # type: ignore[attr-defined]
 
 
 if __name__ == "__main__":

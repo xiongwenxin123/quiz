@@ -56,6 +56,43 @@ class QuizRequestTests(unittest.TestCase):
                 ],
             )
 
+    def test_normalizes_choice_ids_and_answer_text_before_validation(self) -> None:
+        value = Question.model_validate(
+            {
+                "id": "q1",
+                "type": "detail",
+                "prompt": "Which answer is supported by the article?",
+                "options": [
+                    {"id": "1", "text": "Unsupported"},
+                    {"id": "2", "text": "Supported answer"},
+                ],
+                "correct_answer": "Supported answer",
+                "explanation": "The second option matches the source.",
+                "evidence_sentence_ids": ["s1"],
+                "evidence_quote": "The source supports the second option.",
+                "skill": "detail reading",
+                "estimated_level": "B1",
+            }
+        )
+        self.assertEqual([item.id for item in value.options], ["A", "B"])
+        self.assertEqual(value.correct_option_id, "B")
+
+    def test_normalizes_open_answer_alias_before_validation(self) -> None:
+        value = Question.model_validate(
+            {
+                "id": "q1",
+                "type": "short_answer",
+                "prompt": "What is the supported answer?",
+                "answer": "The supported answer.",
+                "explanation": "It is stated directly in the article.",
+                "evidence_sentence_ids": ["s1"],
+                "evidence_quote": "The supported answer is stated here.",
+                "skill": "short answer",
+                "estimated_level": "B1",
+            }
+        )
+        self.assertEqual(value.accepted_answers, ["The supported answer."])
+
 
 if __name__ == "__main__":
     unittest.main()
